@@ -1,10 +1,10 @@
 [package]
 name = "rustdesk"
 version = "1.4.6"
-authors = ["rustdesk <info@rustdesk.com>"]
+authors = ["FS Solutions <contact@fs-solutions.fr>"]
 edition = "2021"
 build= "build.rs"
-description = "RustDesk Remote Desktop"
+description = "FS Support remote assistance"
 default-run = "rustdesk"
 rust-version = "1.75"
 
@@ -213,7 +213,7 @@ exclude = ["vdi/host", "examples/custom_plugin"]
 libxdo-sys = { path = "libs/libxdo-sys-stub" }
 
 [package.metadata.winres]
-LegalCopyright = "Copyright © 2025 Purslane Ltd. All rights reserved."
+LegalCopyright = "Copyright © 2026 FS Solutions. All rights reserved."
 ProductName = "FS Support"
 FileDescription = "FS Support Remote Assistance"
 OriginalFilename = "fs-support.exe"

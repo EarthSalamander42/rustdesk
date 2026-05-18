@@ -1,17 +1,17 @@
 Name:       rustdesk
 Version:    1.4.6
 Release:    0
-Summary:    RPM package
+Summary:    FS Support remote assistance
 License:    GPL-3.0
-URL:        https://rustdesk.com
-Vendor:     rustdesk <info@rustdesk.com>
+URL:        https://fs-solutions.fr/support
+Vendor:     FS Solutions <contact@fs-solutions.fr>
 Requires:   gtk3 libxcb libXfixes alsa-lib libva2 pam gstreamer1-plugins-base
 Recommends: libayatana-appindicator-gtk3 libxdo
 
 # https://docs.fedoraproject.org/en-US/packaging-guidelines/Scriptlets/
 
 %description
-The best open-source remote desktop client software, written in Rust.
+FS Support remote assistance client, based on RustDesk.
 
 %prep
 # we have no source, so nothing here
