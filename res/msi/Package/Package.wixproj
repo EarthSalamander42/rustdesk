@@ -1,4 +1,5 @@
 ﻿<Project Sdk="WixToolset.Sdk/4.0.5">
+  <Import Project="GeneratedDefines.props" Condition="Exists('GeneratedDefines.props')" />
   <PropertyGroup>
     <IncludeSearchPaths>
     </IncludeSearchPaths>

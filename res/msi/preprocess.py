@@ -12,6 +12,7 @@ import platform
 from pathlib import Path
 from itertools import chain
 import shutil
+from xml.sax.saxutils import escape as xml_escape
 
 g_indent_unit = "\t"
 g_version = ""
@@ -150,31 +151,74 @@ def gen_auto_component(app_name, dist_dir):
     )
 
 
-def gen_pre_vars(args, dist_dir):
-    def func(lines, index_start):
-        upgrade_code = uuid.uuid5(uuid.NAMESPACE_OID, app_name + ".exe")
+def build_pre_vars(args, dist_dir):
+    product_lower = args.app_name.lower()
+    reg_key_root = f".{product_lower}"
 
+    return {
+        "Version": g_version,
+        "Manufacturer": args.manufacturer,
+        "Product": args.app_name,
+        "Description": f"{args.app_name} Installer",
+        "ProductLower": product_lower,
+        "RegKeyRoot": reg_key_root,
+        "RegKeyInstall": f"{reg_key_root}\\Install",
+        "BuildDir": str(dist_dir),
+        "BuildDate": g_build_date,
+        "UpgradeCode": str(uuid.uuid5(uuid.NAMESPACE_OID, args.app_name + ".exe")),
+    }
+
+
+def gen_msbuild_pre_vars(defines):
+    define_constants = ";".join(f"{key}={value}" for key, value in defines.items())
+    target_file = Path(sys.argv[0]).parent.joinpath("Package/GeneratedDefines.props")
+    with open(target_file, "w", encoding="utf-8") as f:
+        f.write(
+            "<Project>\n"
+            "  <PropertyGroup>\n"
+            f"    <DefineConstants>$(DefineConstants);{xml_escape(define_constants)}</DefineConstants>\n"
+            "  </PropertyGroup>\n"
+            "</Project>\n"
+        )
+
+    return True
+
+
+def gen_pre_vars(args, dist_dir):
+    defines = build_pre_vars(args, dist_dir)
+
+    def func(lines, index_start):
         indent = g_indent_unit * 1
+
+        def guarded_define(name, value):
+            return [
+                f"{indent}<?ifndef {name} ?>\n",
+                f'{indent}<?define {name}="{value}" ?>\n',
+                f"{indent}<?endif?>\n",
+            ]
+
         to_insert_lines = [
-            f'{indent}<?define Version="{g_version}" ?>\n',
-            f'{indent}<?define Manufacturer="{args.manufacturer}" ?>\n',
-            f'{indent}<?define Product="{args.app_name}" ?>\n',
-            f'{indent}<?define Description="{args.app_name} Installer" ?>\n',
-            f'{indent}<?define ProductLower="{args.app_name.lower()}" ?>\n',
-            f'{indent}<?define RegKeyRoot=".$(var.ProductLower)" ?>\n',
-            f'{indent}<?define RegKeyInstall="$(var.RegKeyRoot)\\Install" ?>\n',
-            f'{indent}<?define BuildDir="{dist_dir}" ?>\n',
-            f'{indent}<?define BuildDate="{g_build_date}" ?>\n',
+            *guarded_define("Version", defines["Version"]),
+            *guarded_define("Manufacturer", defines["Manufacturer"]),
+            *guarded_define("Product", defines["Product"]),
+            *guarded_define("Description", defines["Description"]),
+            *guarded_define("ProductLower", defines["ProductLower"]),
+            *guarded_define("RegKeyRoot", ".$(var.ProductLower)"),
+            *guarded_define("RegKeyInstall", "$(var.RegKeyRoot)\\Install"),
+            *guarded_define("BuildDir", defines["BuildDir"]),
+            *guarded_define("BuildDate", defines["BuildDate"]),
             "\n",
             f"{indent}<!-- The UpgradeCode must be consistent for each product. ! -->\n"
-            f'{indent}<?define UpgradeCode = "{upgrade_code}" ?>\n',
+            f"{indent}<?ifndef UpgradeCode ?>\n"
+            f'{indent}<?define UpgradeCode = "{defines["UpgradeCode"]}" ?>\n'
+            f"{indent}<?endif?>\n",
         ]
 
         for i, line in enumerate(to_insert_lines):
             lines.insert(index_start + i + 1, line)
         return lines
 
-    return gen_content_between_tags(
+    return gen_msbuild_pre_vars(defines) and gen_content_between_tags(
         "Package/Includes.wxi", "<!--$PreVarsStart$-->", "<!--$PreVarsEnd$-->", func
     )
 
