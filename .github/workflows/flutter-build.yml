@@ -46,6 +46,11 @@ env:
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
+  FS_SUPPORT_APP_NAME: "${{ vars.FS_SUPPORT_APP_NAME || 'FS Support' }}"
+  FS_RUSTDESK_HOST: "${{ secrets.FS_RUSTDESK_HOST || vars.FS_RUSTDESK_HOST }}"
+  FS_RUSTDESK_KEY: "${{ secrets.FS_RUSTDESK_KEY || vars.FS_RUSTDESK_KEY }}"
+  FS_RUSTDESK_RELAY: "${{ secrets.FS_RUSTDESK_RELAY || vars.FS_RUSTDESK_RELAY }}"
+  FS_RUSTDESK_API: "${{ secrets.FS_RUSTDESK_API || vars.FS_RUSTDESK_API }}"
 
 jobs:
   generate-bridge:
@@ -259,7 +264,7 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           pushd ./res/msi
-          python preprocess.py --arp -d ../../rustdesk
+          python preprocess.py --arp --app-name "FS Support" -d ../../rustdesk
           nuget restore msi.sln
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
           mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
