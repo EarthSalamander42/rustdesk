@@ -72,6 +72,7 @@ env:
   FS_RUSTDESK_KEY: "${{ secrets.FS_RUSTDESK_KEY || vars.FS_RUSTDESK_KEY }}"
   FS_RUSTDESK_RELAY: "${{ secrets.FS_RUSTDESK_RELAY || vars.FS_RUSTDESK_RELAY }}"
   FS_RUSTDESK_API: "${{ secrets.FS_RUSTDESK_API || vars.FS_RUSTDESK_API }}"
+  FS_BUILD_WINDOWS_MSI: "${{ vars.FS_BUILD_WINDOWS_MSI || 'false' }}"
 
 jobs:
   generate-bridge:
@@ -285,7 +286,7 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Build msi
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: env.UPLOAD_ARTIFACT == 'true' && env.FS_BUILD_WINDOWS_MSI == 'true'
         run: |
           pushd ./res/msi
           python preprocess.py --arp --app-name "${{ env.FS_SUPPORT_APP_NAME }}" --manufacturer "FS Solutions" -d ../../rustdesk
@@ -307,7 +308,6 @@ jobs:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
           files: |
-            ./SignOutput/rustdesk-*.msi
             ./SignOutput/rustdesk-*.exe
 
   # The fallback for the flutter version, we use Sciter for 32bit Windows.
