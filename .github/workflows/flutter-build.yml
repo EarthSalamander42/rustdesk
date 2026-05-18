@@ -741,6 +741,23 @@ jobs:
           cargo -V
           rustc -V
 
+      - name: Build FS Support macOS icon
+        shell: bash
+        run: |
+          ICONSET="$(mktemp -d)/AppIcon.iconset"
+          mkdir -p "$ICONSET"
+          sips -z 16 16 res/mac-icon.png --out "$ICONSET/icon_16x16.png"
+          sips -z 32 32 res/mac-icon.png --out "$ICONSET/icon_16x16@2x.png"
+          sips -z 32 32 res/mac-icon.png --out "$ICONSET/icon_32x32.png"
+          sips -z 64 64 res/mac-icon.png --out "$ICONSET/icon_32x32@2x.png"
+          sips -z 128 128 res/mac-icon.png --out "$ICONSET/icon_128x128.png"
+          sips -z 256 256 res/mac-icon.png --out "$ICONSET/icon_128x128@2x.png"
+          sips -z 256 256 res/mac-icon.png --out "$ICONSET/icon_256x256.png"
+          sips -z 512 512 res/mac-icon.png --out "$ICONSET/icon_256x256@2x.png"
+          sips -z 512 512 res/mac-icon.png --out "$ICONSET/icon_512x512.png"
+          sips -z 1024 1024 res/mac-icon.png --out "$ICONSET/icon_512x512@2x.png"
+          iconutil -c icns "$ICONSET" -o flutter/macos/Runner/AppIcon.icns
+
       - name: Build rustdesk
         run: |
           if [ "${{ matrix.job.target }}" = "aarch64-apple-darwin" ]; then

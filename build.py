@@ -417,11 +417,17 @@ def build_flutter_dmg(version, features):
     if not app_bundle.exists():
         rustdesk_bundle = app_release_dir / 'RustDesk.app'
         if rustdesk_bundle.exists():
-            app_bundle = rustdesk_bundle
+            if preferred_app_name != 'RustDesk':
+                shutil.move(str(rustdesk_bundle), str(app_bundle))
+            else:
+                app_bundle = rustdesk_bundle
         else:
             app_matches = sorted(app_release_dir.glob('*.app'))
             if len(app_matches) == 1:
-                app_bundle = app_matches[0]
+                if preferred_app_name != app_matches[0].stem:
+                    shutil.move(str(app_matches[0]), str(app_bundle))
+                else:
+                    app_bundle = app_matches[0]
             else:
                 raise FileNotFoundError(
                     f'Unable to find macOS app bundle in {app_release_dir}; found: {app_matches}'

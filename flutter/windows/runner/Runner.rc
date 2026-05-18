@@ -89,12 +89,12 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Purslane Ltd" "\0"
+            VALUE "CompanyName", "FS Solutions" "\0"
             VALUE "FileDescription", "FS Support Remote Assistance" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "rustdesk" "\0"
-            VALUE "LegalCopyright", "Copyright © 2025 Purslane Ltd. All rights reserved." "\0"
-            VALUE "OriginalFilename", "rustdesk.exe" "\0"
+            VALUE "InternalName", "fs-support" "\0"
+            VALUE "LegalCopyright", "Copyright © 2026 FS Solutions. All rights reserved." "\0"
+            VALUE "OriginalFilename", "FS Support.exe" "\0"
             VALUE "ProductName", "FS Support" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
