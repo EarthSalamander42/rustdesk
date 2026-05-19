@@ -48,16 +48,9 @@ pub fn apply_defaults() {
 
 pub fn display_version() -> String {
     let base = build_value(option_env!("FS_SUPPORT_BASE_VERSION"));
-    let base = if base.is_empty() {
+    if base.is_empty() {
         DEFAULT_FS_SUPPORT_VERSION.to_owned()
     } else {
         base
-    };
-    let sha = build_value(option_env!("FS_SUPPORT_BUILD_SHA"));
-    let short_sha: String = sha.chars().take(12).collect();
-    if short_sha.is_empty() {
-        base
-    } else {
-        format!("{base}-fs.{short_sha}")
     }
 }
