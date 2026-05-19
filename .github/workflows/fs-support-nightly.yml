@@ -15,6 +15,7 @@ jobs:
     with:
       upload-artifact: true
       upload-tag: "fs-nightly"
+      build-scope: "fs-support-desktop"
 
   normalize-fs-support-release:
     name: Normalize FS Support release assets
