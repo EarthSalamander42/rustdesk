@@ -46,11 +46,31 @@ def system2(cmd):
 
 
 def get_version():
+    fs_support_version = os.environ.get("FS_SUPPORT_BASE_VERSION", "").strip()
+    if fs_support_version:
+        return fs_support_version
+
     with open("Cargo.toml", encoding="utf-8") as fh:
         for line in fh:
             if line.startswith("version"):
                 return line.replace("version", "").replace("=", "").replace('"', '').strip()
     return ''
+
+
+def get_flutter_build_version_args():
+    version = os.environ.get("FS_SUPPORT_BASE_VERSION", "").strip()
+    if not version:
+        return ""
+    parts = []
+    for part in version.split(".")[:3]:
+        try:
+            parts.append(int(part))
+        except ValueError:
+            parts.append(0)
+    while len(parts) < 3:
+        parts.append(0)
+    build_number = max(1, parts[0] * 10000 + parts[1] * 100 + parts[2])
+    return f" --build-name {version} --build-number {build_number}"
 
 
 def parse_rc_features(feature):
@@ -320,7 +340,7 @@ def build_flutter_deb(version, features):
         system2(f'cargo build --features {features} --lib --release')
         ffi_bindgen_function_refactor()
     os.chdir('flutter')
-    system2('flutter build linux --release')
+    system2(f'flutter build linux --release{get_flutter_build_version_args()}')
     system2('mkdir -p tmpdeb/usr/bin/')
     system2('mkdir -p tmpdeb/usr/share/rustdesk')
     system2('mkdir -p tmpdeb/etc/rustdesk/')
@@ -410,7 +430,7 @@ def build_flutter_dmg(version, features):
     system2(
         "cp target/release/liblibrustdesk.dylib target/release/librustdesk.dylib")
     os.chdir('flutter')
-    system2('flutter build macos --release')
+    system2(f'flutter build macos --release{get_flutter_build_version_args()}')
     app_release_dir = Path('build/macos/Build/Products/Release')
     preferred_app_name = os.environ.get('FS_SUPPORT_APP_NAME', 'RustDesk')
     app_bundle = app_release_dir / f'{preferred_app_name}.app'
@@ -446,7 +466,7 @@ def build_flutter_arch_manjaro(version, features):
         system2(f'cargo build --features {features} --lib --release')
     ffi_bindgen_function_refactor()
     os.chdir('flutter')
-    system2('flutter build linux --release')
+    system2(f'flutter build linux --release{get_flutter_build_version_args()}')
     system2(f'strip {flutter_build_dir}/lib/librustdesk.so')
     os.chdir('../res')
     system2('HBB=`pwd`/.. FLUTTER=1 makepkg -f')
@@ -459,7 +479,7 @@ def build_flutter_windows(version, features, skip_portable_pack):
             print("cargo build failed, please check rust source code.")
             exit(-1)
     os.chdir('flutter')
-    system2('flutter build windows --release')
+    system2(f'flutter build windows --release{get_flutter_build_version_args()}')
     os.chdir('..')
     shutil.copy2('target/release/deps/dylib_virtual_display.dll',
                  flutter_build_dir_2)
