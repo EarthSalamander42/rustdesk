@@ -90,6 +90,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         alignment: Alignment.center,
         child: loadLogo(),
       ),
+      if (bind.isCustomClient()) buildVersionBadge(context),
       buildTip(context),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
@@ -184,6 +185,35 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: ConnectionPage(),
+    );
+  }
+
+  Widget buildVersionBadge(BuildContext context) {
+    return FutureBuilder<String>(
+      future: bind.mainGetVersion(),
+      builder: (_, snapshot) {
+        final version = (snapshot.data ?? '').trim();
+        if (version.isEmpty) return const SizedBox();
+        final textColor = Theme.of(context).textTheme.bodySmall?.color;
+        return Container(
+          margin: const EdgeInsets.only(top: 8, left: 16, right: 16, bottom: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: borderColor.withOpacity(0.08),
+            border: Border.all(color: borderColor.withOpacity(0.22)),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            'Version $version',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: textColor?.withOpacity(0.78),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+      },
     );
   }
 

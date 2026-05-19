@@ -760,6 +760,9 @@ pub fn get_new_version() -> String {
 
 #[inline]
 pub fn get_version() -> String {
+    if crate::common::is_custom_client() {
+        return crate::fs_support::display_version();
+    }
     crate::VERSION.to_owned()
 }
 
