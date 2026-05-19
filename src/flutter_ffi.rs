@@ -2845,7 +2845,9 @@ pub fn main_get_common(key: String) -> String {
                 crate::common::is_custom_client(),
             ) {
                 (Ok(true), false) => format!("rustdesk-{_version}-x86_64.msi"),
-                (Ok(true), true) | (Ok(false), _) => format!("rustdesk-{_version}-x86_64.exe"),
+                (Ok(true), true) => format!("fs-support-{_version}-windows-x86_64.exe"),
+                (Ok(false), true) => format!("fs-support-{_version}-windows-x86_64.exe"),
+                (Ok(false), false) => format!("rustdesk-{_version}-x86_64.exe"),
                 (Err(e), _) => {
                     log::error!("Failed to check if is msi: {}", e);
                     format!("error:update-failed-check-msi-tip")
@@ -2853,6 +2855,15 @@ pub fn main_get_common(key: String) -> String {
             };
             #[cfg(target_os = "macos")]
             {
+                if crate::common::is_custom_client() {
+                    return if cfg!(target_arch = "x86_64") {
+                        format!("fs-support-{_version}-macos-x86_64.dmg")
+                    } else if cfg!(target_arch = "aarch64") {
+                        format!("fs-support-{_version}-macos-aarch64.dmg")
+                    } else {
+                        "error:unsupported".to_owned()
+                    };
+                }
                 return if cfg!(target_arch = "x86_64") {
                     format!("rustdesk-{_version}-x86_64.dmg")
                 } else if cfg!(target_arch = "aarch64") {

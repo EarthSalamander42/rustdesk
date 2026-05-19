@@ -54,3 +54,22 @@ pub fn display_version() -> String {
         base
     }
 }
+
+pub fn product_version() -> String {
+    if crate::common::is_custom_client() {
+        display_version()
+    } else {
+        crate::VERSION.to_owned()
+    }
+}
+
+pub fn windows_install_version() -> String {
+    product_version().replace("-", ".")
+}
+
+pub fn windows_install_version_parts() -> Vec<String> {
+    windows_install_version()
+        .split('.')
+        .map(|part| part.trim().to_owned())
+        .collect()
+}
