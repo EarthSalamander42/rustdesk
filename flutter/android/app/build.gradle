@@ -82,7 +82,7 @@ protobuf {
 }
 
 android {
-    compileSdkVersion 34
+    compileSdkVersion 35
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
 
@@ -98,7 +98,7 @@ android {
     defaultConfig {
         applicationId "fr.fssolutions.support"
         minSdkVersion 22
-        targetSdkVersion 33
+        targetSdkVersion 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
     }

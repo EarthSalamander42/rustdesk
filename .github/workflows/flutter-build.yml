@@ -1324,6 +1324,17 @@ jobs:
           mkdir -p signed-apk
           mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
 
+      - name: Verify FS Support Android SDK target
+        if: ${{ inputs.build-scope == 'fs-support' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$AAPT"
+          BADGING="$($AAPT dump badging signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk)"
+          printf '%s\n' "$BADGING" | grep -E "^package:|^sdkVersion:|^targetSdkVersion:"
+          printf '%s\n' "$BADGING" | grep -q "targetSdkVersion:'35'"
+
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
         if: ${{ inputs.build-scope != 'fs-support' }}
