@@ -11,6 +11,16 @@ subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
 subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android') && project.android.namespace == null) {
+            def declaredGroup = project.group.toString()
+            project.android.namespace = declaredGroup.contains('.')
+                ? declaredGroup
+                : "fr.fssolutions.support.plugins.${project.name.replace('-', '_')}"
+        }
+    }
+}
+subprojects {
     project.evaluationDependsOn(':app')
 }
 
