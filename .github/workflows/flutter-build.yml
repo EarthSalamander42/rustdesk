@@ -1963,7 +1963,9 @@ jobs:
           sudo apt-get install -y libarchive-tools libfuse2
           # set-up appimage-builder
           # https://github.com/AppImage/AppImageKit/issues/1395
-          sudo pip3 install git+https://github.com/rustdesk-org/appimage-builder.git
+          # Isolate the legacy setup.py build from Ubuntu 22.04's old system
+          # setuptools. Recent setuptools_scm releases require newer metadata APIs.
+          sudo python3 -m pip install --use-pep517 git+https://github.com/rustdesk-org/appimage-builder.git
           # run appimage-builder
           pushd appimage
           sudo appimage-builder --skip-tests --recipe ./AppImageBuilder-${{ matrix.job.arch }}.yml
