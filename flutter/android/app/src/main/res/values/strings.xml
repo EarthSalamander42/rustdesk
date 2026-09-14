@@ -1,5 +1,5 @@
 <resources>
     <string name="app_name">FS Support</string>
     <string name="accessibility_service_name">FS Support Input</string>
-    <string name="accessibility_service_description">Autorise le controle tactile a distance lorsqu'une session FS Support est etablie.</string>
+    <string name="accessibility_service_description">Autorise le controle tactile a distance lorsqu\'une session FS Support est etablie.</string>
 </resources>
