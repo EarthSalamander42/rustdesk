@@ -12,11 +12,20 @@ subprojects {
 }
 subprojects {
     afterEvaluate { project ->
-        if (project.hasProperty('android') && project.android.namespace == null) {
-            def declaredGroup = project.group.toString()
-            project.android.namespace = declaredGroup.contains('.')
-                ? declaredGroup
-                : "fr.fssolutions.support.plugins.${project.name.replace('-', '_')}"
+        if (project.hasProperty('android')) {
+            if (project.android.namespace == null) {
+                def declaredGroup = project.group.toString()
+                project.android.namespace = declaredGroup.contains('.')
+                    ? declaredGroup
+                    : "fr.fssolutions.support.plugins.${project.name.replace('-', '_')}"
+            }
+            project.android.compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+        }
+        project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            kotlinOptions.jvmTarget = '17'
         }
     }
 }
