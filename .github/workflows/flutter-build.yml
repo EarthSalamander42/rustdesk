@@ -1627,7 +1627,7 @@ jobs:
             python3 ./build.py --flutter --skip-cargo
             built_deb="$(find . -maxdepth 1 -type f -name 'rustdesk-*.deb' | sort | head -n 1)"
             test -n "$built_deb"
-            mv "$built_deb" "rustdesk-${VERSION}-${{ matrix.job.arch }}.deb"
+            mv "$built_deb" "rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.deb"
 
             # rpm package
             echo -e "start packaging fedora package"
