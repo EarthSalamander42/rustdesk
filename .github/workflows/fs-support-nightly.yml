@@ -15,7 +15,7 @@ jobs:
     with:
       upload-artifact: true
       upload-tag: "fs-nightly"
-      build-scope: "fs-support-desktop"
+      build-scope: "fs-support"
 
   normalize-fs-support-release:
     name: Normalize FS Support release assets
@@ -27,7 +27,7 @@ jobs:
       FS_SUPPORT_BASE_VERSION: ${{ vars.FS_SUPPORT_BASE_VERSION || '1.0.0' }}
     steps:
       - name: Checkout source with submodules
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -67,6 +67,7 @@ jobs:
           copy_first "fs-support-${VERSION}-macos-aarch64.dmg" "rustdesk-*aarch64*.dmg" "*macos*aarch64*.dmg" "*apple*.dmg" "*arm64*.dmg"
           copy_first "fs-support-${VERSION}-linux-x86_64.deb" "rustdesk-*x86_64.deb" "*linux*x86_64*.deb"
           copy_first "fs-support-${VERSION}-linux-x86_64.AppImage" "rustdesk-*x86_64.AppImage" "*linux*x86_64*.AppImage"
+          copy_first "fs-support-${VERSION}-android-universal.apk" "rustdesk-*universal*.apk" "*android*universal*.apk"
 
           tar --exclude-vcs --exclude="$WORK_DIR" -czf "$OUT_DIR/fs-support-${VERSION}-source.tar.gz" .
 

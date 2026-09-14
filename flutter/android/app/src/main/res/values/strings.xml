@@ -1,4 +1,5 @@
 <resources>
-    <string name="app_name">RustDesk</string>
-    <string name="accessibility_service_description">Allow other devices to control your phone using virtual touch, when RustDesk screen sharing is established</string>
+    <string name="app_name">FS Support</string>
+    <string name="accessibility_service_name">FS Support Input</string>
+    <string name="accessibility_service_description">Autorise le controle tactile a distance lorsqu'une session FS Support est etablie.</string>
 </resources>
