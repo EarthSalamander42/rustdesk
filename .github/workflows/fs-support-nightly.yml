@@ -20,6 +20,8 @@ jobs:
   normalize-fs-support-release:
     name: Normalize FS Support release assets
     needs: run-fs-support-build
+    # Publier les plateformes réussies même si une autre (ex. AppImage Linux) a échoué.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}

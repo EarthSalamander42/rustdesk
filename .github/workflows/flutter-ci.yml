@@ -17,8 +17,13 @@ on:
       - "appimage/**"
       - "flatpak/**"
 
+# FS Support : le workflow appelé déclare contents: write ; sans cette autorisation l'exécution échouait au démarrage.
+permissions:
+  contents: write
+
 jobs:
   run-ci:
     uses: ./.github/workflows/flutter-build.yml
     with:
       upload-artifact: false
+      build-scope: "windows-x64"
