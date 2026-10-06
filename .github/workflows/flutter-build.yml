@@ -1392,7 +1392,8 @@ jobs:
           files: signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
 
   build-rustdesk-linux:
-    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop' }}
+    # FS Support ne distribue pas Linux (décision du 06/10/2026) : construit seulement en portée « all ».
+    if: ${{ inputs.build-scope == 'all' }}
     needs: [generate-bridge]
     name: build rustdesk linux ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.on }}
@@ -1944,7 +1945,7 @@ jobs:
     name: Build appimage ${{ matrix.job.target }}
     needs: [build-rustdesk-linux]
     runs-on: ubuntu-22.04
-    if: ${{ (inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop') && inputs.upload-artifact }}
+    if: ${{ inputs.build-scope == 'all' && inputs.upload-artifact }}
     strategy:
       fail-fast: false
       matrix:
