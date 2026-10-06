@@ -67,8 +67,7 @@ jobs:
           copy_first "fs-support-${VERSION}-windows-x86_64.msi" "rustdesk-*x86_64.msi" "*windows*x86_64*.msi"
           copy_first "fs-support-${VERSION}-macos-x86_64.dmg" "rustdesk-*x86_64*.dmg" "*macos*x86_64*.dmg" "*intel*.dmg"
           copy_first "fs-support-${VERSION}-macos-aarch64.dmg" "rustdesk-*aarch64*.dmg" "*macos*aarch64*.dmg" "*apple*.dmg" "*arm64*.dmg"
-          copy_first "fs-support-${VERSION}-linux-x86_64.deb" "rustdesk-*x86_64.deb" "*linux*x86_64*.deb"
-          copy_first "fs-support-${VERSION}-linux-x86_64.AppImage" "rustdesk-*x86_64.AppImage" "*linux*x86_64*.AppImage"
+          # Linux n'est plus distribué (06/10/2026) : ni .deb ni AppImage (l'ancienne AppImage était republiée sous le nouveau nom).
           copy_first "fs-support-${VERSION}-android-universal.apk" "rustdesk-*universal*.apk" "*android*universal*.apk"
 
           tar --exclude-vcs --exclude="$WORK_DIR" -czf "$OUT_DIR/fs-support-${VERSION}-source.tar.gz" .
