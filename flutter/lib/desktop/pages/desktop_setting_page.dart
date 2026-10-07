@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:fs_ui/fs_ui.dart' show FsStrings;
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/widgets/audio_input.dart';
@@ -2567,6 +2568,13 @@ class _AboutState extends State<_About> {
                   },
                   child: Text(
                     translate('Website'),
+                    style: linkStyle,
+                  ).marginSymmetric(vertical: 4.0)),
+              // FS Support : crédit RustDesk et code source du fork (obligation AGPL-3.0).
+              InkWell(
+                  onTap: () => launchUrlString(FsStrings.sourceUrl),
+                  child: Text(
+                    '${FsStrings.poweredBy} · ${FsStrings.license} — code source',
                     style: linkStyle,
                   ).marginSymmetric(vertical: 4.0)),
               Container(

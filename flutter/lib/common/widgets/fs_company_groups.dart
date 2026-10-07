@@ -15,6 +15,9 @@ import 'package:get/get.dart';
 import '../../common.dart';
 import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
+import '../../fs/fs_peer_row.dart';
+import 'package:fs_ui/fs_ui.dart';
+import 'peer_card.dart' show peerCardUiType, PeerUiType;
 
 const String kOptionFsGroupByCompany = 'fs-group-by-company';
 const String kOptionFsCompanyMap = 'fs-company-map';
@@ -34,8 +37,9 @@ bool _loaded = false;
 void fsLoadCompanyOptions() {
   if (_loaded) return;
   _loaded = true;
+  // Atelier : regroupement par entreprise actif tant qu'il n'a pas été coupé à la main.
   fsGroupByCompany.value =
-      bind.getLocalFlutterOption(k: kOptionFsGroupByCompany) == 'Y';
+      bind.getLocalFlutterOption(k: kOptionFsGroupByCompany) != 'N';
   try {
     final raw = bind.getLocalFlutterOption(k: kOptionFsCompanyMap);
     if (raw.isNotEmpty) {
@@ -185,7 +189,8 @@ void fsCompanyDialog(String peerId, List<String> suggestions,
   });
 }
 
-/// Liste des entreprises, chacune repliable, avec ses appareils dessous.
+/// Liste des entreprises, chacune repliable, avec ses appareils dessous (habillage de l'Atelier :
+/// en-tête filé, compteur « N en ligne », dépliage animé à la hauteur réelle).
 class FsCompanyGroupedView extends StatelessWidget {
   final List<Peer> peers;
   final Widget Function(Peer peer) cardBuilder;
@@ -205,6 +210,7 @@ class FsCompanyGroupedView extends StatelessWidget {
     return Obx(() {
       // Reconstruction à chaque changement d'entreprise ou de repli.
       fsCompanyVersion.value;
+      final list = peerCardUiType.value == PeerUiType.list;
       final groups = <String, List<Peer>>{};
       final labels = <String, String>{};
       for (final p in peers) {
@@ -220,97 +226,29 @@ class FsCompanyGroupedView extends StatelessWidget {
           if (ua != ub) return ua ? 1 : -1;
           return a.compareTo(b);
         });
-      return ListView.builder(
+      final companies = [
+        for (final k in keys)
+          FsCompany(
+            name: labels[k]!,
+            unclassified: k == kFsUnclassified.toLowerCase(),
+            devices: groups[k]!.map(fsDeviceOf).toList(),
+          )
+      ];
+      return FsGroupedDeviceList(
         controller: controller,
-        itemCount: keys.length,
-        itemBuilder: (context, index) {
-          final key = keys[index];
-          return _CompanySection(
-            label: labels[key]!,
-            peers: groups[key]!,
-            collapsed: _collapsed.contains(key),
-            cardBuilder: cardBuilder,
-            space: space,
-          ).marginOnly(right: space, bottom: space);
-        },
+        companies: companies,
+        isOpen: (c) => !_collapsed.contains(c.name.toLowerCase()),
+        onToggle: (c, open) => _toggleCollapsed(c.name),
+        rowBuilder: (d) => cardBuilder(d.payload as Peer),
+        bodyBuilder: list
+            ? null
+            : (devices) => Wrap(
+                  spacing: space,
+                  runSpacing: space / 2,
+                  children: devices.map((d) => cardBuilder(d.payload as Peer)).toList(),
+                ).paddingOnly(left: 10, right: 10, top: 4, bottom: 12),
       );
     });
-  }
-}
-
-class _CompanySection extends StatelessWidget {
-  final String label;
-  final List<Peer> peers;
-  final bool collapsed;
-  final Widget Function(Peer peer) cardBuilder;
-  final double space;
-
-  const _CompanySection({
-    required this.label,
-    required this.peers,
-    required this.collapsed,
-    required this.cardBuilder,
-    required this.space,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final online = peers.where((p) => p.online).length;
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: theme.dividerColor.withOpacity(0.4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => _toggleCollapsed(label),
-            child: Row(
-              children: [
-                AnimatedRotation(
-                  turns: collapsed ? -0.25 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  child: const Icon(Icons.expand_more_rounded, size: 20),
-                ),
-                const SizedBox(width: 6),
-                Icon(Icons.business_rounded,
-                    size: 16, color: theme.textTheme.bodySmall?.color),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(label,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 14)),
-                ),
-                Text(
-                  online > 0
-                      ? '$online en ligne · ${peers.length}'
-                      : '${peers.length}',
-                  style: TextStyle(
-                      fontSize: 12, color: theme.textTheme.bodySmall?.color),
-                ),
-              ],
-            ).paddingSymmetric(horizontal: 10, vertical: 8),
-          ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
-            alignment: Alignment.topCenter,
-            child: collapsed
-                ? const SizedBox(width: double.infinity)
-                : Wrap(
-                    spacing: space,
-                    runSpacing: space / 2,
-                    children: peers.map(cardBuilder).toList(),
-                  ).paddingOnly(left: 10, right: 10, bottom: 10),
-          ),
-        ],
-      ),
-    );
   }
 }
 

@@ -136,14 +136,14 @@ class FsExactLines extends SingleChildRenderObjectWidget {
   final double lineHeight;
 
   @override
-  RenderObject createRenderObject(BuildContext context) => _RenderExactLines(lineHeight);
+  RenderObject createRenderObject(BuildContext context) => RenderFsExactLines(lineHeight);
 
   @override
-  void updateRenderObject(BuildContext context, _RenderExactLines renderObject) => renderObject.lineHeight = lineHeight;
+  void updateRenderObject(BuildContext context, RenderFsExactLines renderObject) => renderObject.lineHeight = lineHeight;
 }
 
-class _RenderExactLines extends RenderProxyBox {
-  _RenderExactLines(this._lh);
+class RenderFsExactLines extends RenderProxyBox {
+  RenderFsExactLines(this._lh);
   double _lh;
   set lineHeight(double v) {
     if (v == _lh) return;

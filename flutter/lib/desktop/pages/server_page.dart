@@ -462,8 +462,8 @@ class _CmHeaderState extends State<_CmHeader>
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
           colors: [
-            Color(0xff00bfe1),
-            Color(0xff0071ff),
+            Color(0xFF3A422D),
+            Color(0xFF11140D),
           ],
         ),
       ),
@@ -634,7 +634,7 @@ class _PrivilegeBoardState extends State<_PrivilegeBoard> {
         decoration: BoxDecoration(
           color: enabled
               ? (canModify ? MyTheme.accent : MyTheme.accent.withOpacity(0.6))
-              : Colors.grey[700],
+              : const Color(0xFF7D8270),
           borderRadius: BorderRadius.circular(10.0),
         ),
         padding: EdgeInsets.all(8.0),
@@ -960,7 +960,7 @@ class _CmControlPanel extends StatelessWidget {
               Expanded(
                 child: buildButton(
                   context,
-                  color: Colors.red,
+                  color: const Color(0xFFA8432C), // FS Support : danger de l’Atelier
                   onClick: () => closeVoiceCall(),
                   icon: Icon(
                     Icons.call_end_rounded,
@@ -993,7 +993,7 @@ class _CmControlPanel extends StatelessWidget {
               Expanded(
                 child: buildButton(
                   context,
-                  color: Colors.red,
+                  color: const Color(0xFFA8432C),
                   onClick: () => handleVoiceCall(false),
                   icon: Icon(
                     Icons.phone_disabled_rounded,
@@ -1010,7 +1010,7 @@ class _CmControlPanel extends StatelessWidget {
         Offstage(
           offstage: !client.fromSwitch,
           child: buildButton(context,
-              color: Colors.purple,
+              color: const Color(0xFF515844),
               onClick: () => handleSwitchBack(context),
               icon: Icon(Icons.reply, color: Colors.white),
               text: "Switch Sides",
@@ -1038,7 +1038,7 @@ class _CmControlPanel extends StatelessWidget {
           children: [
             Expanded(
               child: buildButton(context,
-                  color: Colors.redAccent,
+                  color: const Color(0xFFA8432C),
                   onClick: handleDisconnect,
                   text: 'Disconnect',
                   icon: Icon(
@@ -1083,7 +1083,7 @@ class _CmControlPanel extends StatelessWidget {
       children: [
         Offstage(
           offstage: !showElevation || !showAccept,
-          child: buildButton(context, color: Colors.green[700], onClick: () {
+          child: buildButton(context, color: const Color(0xFF5B7A2C), onClick: () {
             handleAccept(context);
             handleElevate(context);
             windowManager.minimize();

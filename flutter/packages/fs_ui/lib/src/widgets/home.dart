@@ -1,6 +1,7 @@
 // Accueil de l'Atelier : champ de connexion, en-têtes de panneau, panneaux en fondu, emplacements
 // « Bientôt », états vides, barre d'état, barre de titre — et leur assemblage [FsHomeView].
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../strings.dart';
 import '../svg_path.dart';
@@ -17,6 +18,7 @@ class FsConnectBar extends StatefulWidget {
     this.focusNode,
     this.onConnect,
     this.onFiles,
+    this.onChanged,
     this.field,
     this.trailing,
     this.hint = FsStrings.idHint,
@@ -26,6 +28,9 @@ class FsConnectBar extends StatefulWidget {
   final FocusNode? focusNode;
   final ValueChanged<String>? onConnect;
   final ValueChanged<String>? onFiles;
+
+  /// Saisie en cours (le client s'en sert pour filtrer la liste des appareils).
+  final ValueChanged<String>? onChanged;
 
   /// Champ fourni par l'appelant (autocomplétion RustDesk) ; il est posé dans le cadre de l'Atelier.
   final Widget? field;
@@ -86,7 +91,7 @@ class _FsConnectBarState extends State<FsConnectBar> {
                   child: Row(children: [
                     Icon(Icons.search_rounded, size: 20, color: t.muted),
                     const SizedBox(width: 10),
-                    Expanded(child: widget.field ?? FsIdField(controller: _c, focusNode: _f, hint: widget.hint, onSubmitted: widget.onConnect)),
+                    Expanded(child: widget.field ?? FsIdField(controller: _c, focusNode: _f, hint: widget.hint, onSubmitted: widget.onConnect, onChanged: widget.onChanged)),
                   ]),
                 ),
               ),
@@ -115,7 +120,7 @@ class FsIdField extends StatelessWidget {
   final String hint;
   final ValueChanged<String>? onSubmitted;
   final ValueChanged<String>? onChanged;
-  final List<dynamic>? inputFormatters;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -125,11 +130,13 @@ class FsIdField extends StatelessWidget {
       focusNode: focusNode,
       onSubmitted: onSubmitted,
       onChanged: onChanged,
+      inputFormatters: inputFormatters,
       cursorColor: t.acc,
       cursorWidth: 1.5,
       style: FsType.sans(16, FontWeight.w500, height: 1.375, color: t.ink),
       decoration: InputDecoration(
         isCollapsed: true,
+        contentPadding: EdgeInsets.zero,
         filled: false,
         border: InputBorder.none,
         enabledBorder: InputBorder.none,

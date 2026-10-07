@@ -24,6 +24,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # FS Support : habillage « A · Atelier » (thème, polices, widgets de présentation)
+  fs_ui:
+    path: packages/fs_ui
   flutter_localizations:
     sdk: flutter
 

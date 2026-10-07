@@ -13,8 +13,8 @@ ThemeData fsAtelierTheme([ThemeData? base, Brightness brightness = Brightness.li
   final t = FsTokens.forBrightness(brightness);
   base ??= ThemeData(brightness: brightness, useMaterial3: false);
   const square = RoundedRectangleBorder(borderRadius: fsRadius);
-  final textBase = (brightness == Brightness.dark ? Typography.material2018().white : Typography.material2018().black)
-      .apply(fontFamily: FsType.interFamily, bodyColor: t.ink, displayColor: t.ink);
+  // On garde les tailles du thème d'origine (RustDesk) ; seules la famille et les couleurs changent.
+  final textBase = base.textTheme.apply(fontFamily: FsType.interFamily, bodyColor: t.ink, displayColor: t.ink);
   final text = textBase.copyWith(
     titleLarge: textBase.titleLarge?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.5),
     titleMedium: textBase.titleMedium?.copyWith(fontWeight: FontWeight.w700),
@@ -31,10 +31,6 @@ ThemeData fsAtelierTheme([ThemeData? base, Brightness brightness = Brightness.li
     onError: Colors.white,
     surface: t.bg,
     onSurface: t.ink,
-    // ignore: deprecated_member_use
-    background: t.bg,
-    // ignore: deprecated_member_use
-    onBackground: t.ink,
     surfaceTint: Colors.transparent,
     outline: t.line,
     outlineVariant: t.line2,
@@ -85,7 +81,9 @@ ThemeData fsAtelierTheme([ThemeData? base, Brightness brightness = Brightness.li
       unselectedLabelStyle: FsType.sans(12, FontWeight.w600),
       elevation: 0,
     ),
-    tabBarTheme: TabBarTheme(
+    // copyWith sur les valeurs du thème de base : compile avec Flutter 3.24 (TabBarTheme, DialogTheme,
+    // CardTheme) comme avec 3.44 (TabBarThemeData…), utilisé pour Windows arm64.
+    tabBarTheme: base.tabBarTheme.copyWith(
       labelColor: t.ink,
       unselectedLabelColor: t.muted,
       indicatorColor: t.acc,
@@ -150,7 +148,7 @@ ThemeData fsAtelierTheme([ThemeData? base, Brightness brightness = Brightness.li
     ),
     sliderTheme: SliderThemeData(activeTrackColor: t.acc, inactiveTrackColor: t.line, thumbColor: t.acc, overlayColor: t.sel),
     progressIndicatorTheme: ProgressIndicatorThemeData(color: t.acc, linearTrackColor: t.line2, circularTrackColor: t.line2),
-    dialogTheme: DialogTheme(
+    dialogTheme: base.dialogTheme.copyWith(
       backgroundColor: t.bg,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(borderRadius: fsRadius, side: BorderSide(color: t.line)),
@@ -195,7 +193,7 @@ ThemeData fsAtelierTheme([ThemeData? base, Brightness brightness = Brightness.li
       shape: square,
       labelStyle: FsType.sans(13, FontWeight.w600, color: t.ink),
     ),
-    cardTheme: CardTheme(color: t.bg2, surfaceTintColor: Colors.transparent, elevation: 0, shape: square),
+    cardTheme: base.cardTheme.copyWith(color: t.bg2, surfaceTintColor: Colors.transparent, elevation: 0, shape: square),
     drawerTheme: DrawerThemeData(backgroundColor: t.bg),
     bottomSheetTheme: BottomSheetThemeData(backgroundColor: t.bg, shape: square),
     extensions: exts,

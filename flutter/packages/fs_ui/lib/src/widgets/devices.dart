@@ -37,7 +37,10 @@ class _Cols extends StatelessWidget {
 
 /// En-tête des colonnes, souligné à l'encre.
 class FsColumnsHeader extends StatelessWidget {
-  const FsColumnsHeader({super.key});
+  const FsColumnsHeader({super.key, this.lastLabel = FsStrings.colLast});
+
+  /// Titre de la 4e colonne (« Dernière session » dans la maquette).
+  final String lastLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +54,7 @@ class FsColumnsHeader extends StatelessWidget {
         const SizedBox(),
         h(FsStrings.colDevice),
         h(FsStrings.colId),
-        h(FsStrings.colLast),
+        h(lastLabel),
         const SizedBox(),
       ]),
     );
@@ -114,6 +117,7 @@ class FsDeviceRow extends StatelessWidget {
     this.actions = const FsDeviceActions(),
     this.flat = false,
     this.forceHover = false,
+    this.allowOffline = false,
   });
 
   final FsDevice device;
@@ -121,6 +125,9 @@ class FsDeviceRow extends StatelessWidget {
   final FsDeviceActions actions;
   final bool flat;
   final bool forceHover;
+
+  /// Autorise la connexion à un appareil marqué hors ligne (état parfois inconnu tant que le serveur n'a pas répondu).
+  final bool allowOffline;
 
   @override
   Widget build(BuildContext context) {
@@ -130,7 +137,7 @@ class FsDeviceRow extends StatelessWidget {
       forceHover: forceHover,
       cursor: SystemMouseCursors.basic,
       onTap: actions.onSelect == null ? null : () => actions.onSelect!(d),
-      onDoubleTap: d.online && actions.onConnect != null ? () => actions.onConnect!(d) : null,
+      onDoubleTap: (d.online || allowOffline) && actions.onConnect != null ? () => actions.onConnect!(d) : null,
       onSecondaryTapDown: actions.onMore == null ? null : (e) => actions.onMore!(d, e.globalPosition),
       builder: (context, hover, _) {
         final reveal = hover || selected;
@@ -159,7 +166,7 @@ class FsDeviceRow extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                  _GoButton(device: d, reveal: reveal, onConnect: actions.onConnect),
+                  _GoButton(device: d, reveal: reveal, onConnect: actions.onConnect, allowOffline: allowOffline),
                   const SizedBox(width: 4),
                   Builder(
                     builder: (bctx) => FsIconButton(
@@ -196,9 +203,10 @@ class FsDeviceRow extends StatelessWidget {
 }
 
 class _GoButton extends StatelessWidget {
-  const _GoButton({required this.device, required this.reveal, this.onConnect});
+  const _GoButton({required this.device, required this.reveal, this.onConnect, this.allowOffline = false});
   final FsDevice device;
   final bool reveal;
+  final bool allowOffline;
   final void Function(FsDevice d)? onConnect;
 
   @override
@@ -206,7 +214,7 @@ class _GoButton extends StatelessWidget {
     final t = FsTokens.of(context);
     final on = device.online;
     return IgnorePointer(
-      ignoring: !on || !reveal,
+      ignoring: (!on && !allowOffline) || !reveal,
       child: AnimatedOpacity(
         opacity: reveal ? (on ? 1 : 0.45) : 0,
         duration: FsMotion.quick,
@@ -248,10 +256,14 @@ class FsCompanyGroup extends StatefulWidget {
     required this.rowBuilder,
     this.initiallyOpen,
     this.onToggle,
+    this.bodyBuilder,
   });
 
   final FsCompany company;
   final Widget Function(FsDevice d) rowBuilder;
+
+  /// Corps du groupe à la place de la pile de lignes (vue en cartes, par exemple).
+  final Widget Function(List<FsDevice> devices)? bodyBuilder;
   final bool? initiallyOpen;
   final ValueChanged<bool>? onToggle;
 
@@ -309,9 +321,10 @@ class _FsCompanyGroupState extends State<FsCompanyGroup> with SingleTickerProvid
         SizeTransition(
           sizeFactor: CurvedAnimation(parent: _c, curve: FsMotion.ease),
           axisAlignment: -1,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            for (final d in c.devices) widget.rowBuilder(d),
-          ]),
+          child: widget.bodyBuilder?.call(c.devices) ??
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                for (final d in c.devices) widget.rowBuilder(d),
+              ]),
         ),
       ]),
     );
@@ -363,8 +376,10 @@ class FsGroupedDeviceList extends StatelessWidget {
     this.isOpen,
     this.onToggle,
     this.controller,
+    this.bodyBuilder,
   });
 
+  final Widget Function(List<FsDevice> devices)? bodyBuilder;
   final List<FsCompany> companies;
   final Widget Function(FsDevice d) rowBuilder;
   final bool? Function(FsCompany c)? isOpen;
@@ -385,6 +400,7 @@ class FsGroupedDeviceList extends StatelessWidget {
               company: c,
               rowBuilder: rowBuilder,
               initiallyOpen: isOpen?.call(c),
+              bodyBuilder: bodyBuilder,
               onToggle: onToggle == null ? null : (o) => onToggle!(c, o),
             );
           },

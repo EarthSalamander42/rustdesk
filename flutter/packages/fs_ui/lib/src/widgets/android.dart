@@ -63,7 +63,15 @@ class FsShareBody extends StatelessWidget {
     this.onCredit,
     this.connections,
     this.bottomPadding = 18,
+    this.controller,
+    this.header,
   });
+
+  /// Défilement (le gestionnaire RustDesk s'en sert pour montrer une nouvelle connexion).
+  final ScrollController? controller;
+
+  /// Bandeau facultatif au-dessus de tout (avertissement RustDesk).
+  final Widget? header;
 
   final String id;
   final String password;
@@ -87,8 +95,10 @@ class FsShareBody extends StatelessWidget {
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
       child: SingleChildScrollView(
+        controller: controller,
         padding: EdgeInsets.fromLTRB(22, 22, 22, bottomPadding),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (header != null) header!,
           const FsEyebrow(FsStrings.shareMyScreen),
           const SizedBox(height: 6),
           FsText(FsStrings.giveCode, style: FsType.sans(27, FontWeight.w800, height: 1.05, em: -0.045, color: t.ink)),
@@ -233,8 +243,12 @@ class _PermRow extends StatelessWidget {
 /// Entrée de la barre de navigation du bas.
 @immutable
 class FsBottomItem {
-  const FsBottomItem(this.icon, this.label);
-  final IconData icon;
+  const FsBottomItem(this.icon, this.label) : iconWidget = null;
+
+  /// Icône déjà construite (pages RustDesk : `PageShape.icon`), recolorée par la barre.
+  const FsBottomItem.widget(Widget this.iconWidget, this.label) : icon = null;
+  final IconData? icon;
+  final Widget? iconWidget;
   final String label;
 }
 
@@ -267,7 +281,10 @@ class FsBottomNav extends StatelessWidget {
                     tween: Tween(end: i == index ? 1 : 0),
                     duration: FsMotion.quick,
                     builder: (context, v, _) => Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Icon(items[i].icon, size: 20, color: Color.lerp(t.muted, t.acc, v)),
+                      IconTheme(
+                        data: IconThemeData(size: 20, color: Color.lerp(t.muted, t.acc, v)),
+                        child: items[i].iconWidget ?? Icon(items[i].icon),
+                      ),
                       const SizedBox(height: 2),
                       FsText(items[i].label, style: FsType.sans(12, FontWeight.w600, color: Color.lerp(t.muted, t.ink, v))),
                     ]),
