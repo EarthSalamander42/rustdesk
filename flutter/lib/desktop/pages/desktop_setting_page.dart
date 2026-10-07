@@ -529,7 +529,8 @@ class _GeneralState extends State<_General> {
               isServer: false,
             ),
           ),
-        if (!isWeb && !bind.isCustomClient())
+        // FS Support compris : la vérification passe par api.fs-solutions.fr.
+        if (!isWeb)
           _OptionCheckBox(
             context,
             'Check for software update on startup',

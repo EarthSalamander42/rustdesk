@@ -12,6 +12,11 @@ on:
       build-scope:
         type: string
         default: "all"
+      # FS Support : version complète du build (ex. 1.0.104), fournie par fs-support-nightly.yml.
+      # Vide = comportement historique (vars.FS_SUPPORT_BASE_VERSION, sinon 1.0.0).
+      fs-version:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       upload-artifact:
@@ -29,6 +34,10 @@ on:
           - "fs-support-desktop"
           - "windows-x64"
           - "windows-all"
+      fs-version:
+        description: "Version FS Support (ex. 1.0.104) ; vide = FS_SUPPORT_BASE_VERSION"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -62,7 +71,7 @@ env:
   # 2. Update the `VCPKG_COMMIT_ID` in `ci.yml` and `playground.yml`.
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836" # 2025.01.13, got "/opt/artifacts/vcpkg/vcpkg: No such file or directory" with latest version
-  VERSION: "${{ vars.FS_SUPPORT_BASE_VERSION || '1.0.0' }}"
+  VERSION: "${{ inputs.fs-version || vars.FS_SUPPORT_BASE_VERSION || '1.0.0' }}"
   NDK_VERSION: "r28c"
   #signing keys env variable checks
   ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
@@ -74,7 +83,8 @@ env:
   FS_RUSTDESK_KEY: "${{ secrets.FS_RUSTDESK_KEY || vars.FS_RUSTDESK_KEY }}"
   FS_RUSTDESK_RELAY: "${{ secrets.FS_RUSTDESK_RELAY || vars.FS_RUSTDESK_RELAY }}"
   FS_RUSTDESK_API: "${{ secrets.FS_RUSTDESK_API || vars.FS_RUSTDESK_API }}"
-  FS_SUPPORT_BASE_VERSION: "${{ vars.FS_SUPPORT_BASE_VERSION || '1.0.0' }}"
+  # Lu à la compilation par src/fs_support.rs (option_env!), build.py et libs/portable/build.rs.
+  FS_SUPPORT_BASE_VERSION: "${{ inputs.fs-version || vars.FS_SUPPORT_BASE_VERSION || '1.0.0' }}"
   FS_SUPPORT_BUILD_SHA: "${{ github.sha }}"
   FS_BUILD_WINDOWS_MSI: "${{ vars.FS_BUILD_WINDOWS_MSI || 'false' }}"
 
@@ -1317,9 +1327,18 @@ jobs:
             mv ./flutter/android/app/src/main/jniLibs/x86/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86/librustdesk.so
             cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/i686-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/x86/
           fi
+          # FS Support : versionName = version du build, versionCode croissant (majeur*1000000 + mineur*10000 + patch)
+          # pour qu'Android accepte l'APK comme mise à jour de la version installée.
+          FLUTTER_VERSION_ARGS=""
+          if [[ "${{ inputs.build-scope }}" == "fs-support" ]]; then
+            IFS=. read -r V_MAJ V_MIN V_PAT _ <<< "${{ env.VERSION }}"
+            BUILD_NUMBER=$(( 10#${V_MAJ:-1} * 1000000 + 10#${V_MIN:-0} * 10000 + 10#${V_PAT:-0} ))
+            FLUTTER_VERSION_ARGS="--build-name ${{ env.VERSION }} --build-number ${BUILD_NUMBER}"
+            echo "FS Support Android : ${FLUTTER_VERSION_ARGS}"
+          fi
           # build flutter
           pushd flutter
-          flutter build apk "--${{ env.reltype }}" --target-platform android-arm64,android-arm,android-x64${{ env.x86_target }}
+          flutter build apk "--${{ env.reltype }}" --target-platform android-arm64,android-arm,android-x64${{ env.x86_target }} ${FLUTTER_VERSION_ARGS}
           popd
           mkdir -p signed-apk
           mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
@@ -1334,6 +1353,7 @@ jobs:
           BADGING="$($AAPT dump badging signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk)"
           printf '%s\n' "$BADGING" | grep -E "^package:|^sdkVersion:|^targetSdkVersion:"
           printf '%s\n' "$BADGING" | grep -q "targetSdkVersion:'35'"
+          printf '%s\n' "$BADGING" | grep -q "versionName='${{ env.VERSION }}'"
 
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable

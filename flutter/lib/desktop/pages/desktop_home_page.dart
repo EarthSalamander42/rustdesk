@@ -460,10 +460,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   }
 
   Widget buildHelpCards(String updateUrl) {
-    if (!bind.isCustomClient() &&
-        updateUrl.isNotEmpty &&
+    // FS Support : le bandeau « nouvelle version » s'affiche aussi pour le client personnalisé
+    // (URL fournie par api.fs-solutions.fr).
+    if (updateUrl.isNotEmpty &&
         !isCardClosed &&
-        bind.mainUriPrefixSync().contains('rustdesk')) {
+        (bind.isCustomClient() ||
+            bind.mainUriPrefixSync().contains('rustdesk'))) {
       final isToUpdate = (isWindows || isMacOS) && bind.mainIsInstalled();
       String btnText = isToUpdate ? 'Update' : 'Download';
       GestureTapCallback onPressed = () async {

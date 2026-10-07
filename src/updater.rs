@@ -132,18 +132,29 @@ fn check_update(manually: bool) -> ResultType<()> {
     if update_url.is_empty() {
         log::debug!("No update available.");
     } else {
-        let download_url = update_url.replace("tag", "download");
-        let version = download_url.split('/').last().unwrap_or_default();
-        #[cfg(target_os = "windows")]
-        let download_url = if cfg!(feature = "flutter") {
-            format!(
-                "{}/rustdesk-{}-x86_64.{}",
-                download_url,
-                version,
-                if update_msi { "msi" } else { "exe" }
-            )
+        let (download_url, version): (String, String) = if crate::is_custom_client() {
+            // FS Support : api.fs-solutions.fr fournit directement le lien du fichier ;
+            // ne jamais reconstruire une URL GitHub rustdesk/rustdesk.
+            (update_url.clone(), crate::fs_support::latest_update_version())
         } else {
-            format!("{}/rustdesk-{}-x86-sciter.exe", download_url, version)
+            let download_url = update_url.replace("tag", "download");
+            let version = download_url
+                .split('/')
+                .last()
+                .unwrap_or_default()
+                .to_owned();
+            #[cfg(target_os = "windows")]
+            let download_url = if cfg!(feature = "flutter") {
+                format!(
+                    "{}/rustdesk-{}-x86_64.{}",
+                    download_url,
+                    version,
+                    if update_msi { "msi" } else { "exe" }
+                )
+            } else {
+                format!("{}/rustdesk-{}-x86-sciter.exe", download_url, version)
+            };
+            (download_url, version)
         };
         log::debug!("New version available: {}", &version);
         let client = create_http_client_with_url(&download_url);
@@ -285,6 +296,11 @@ fn update_new_version(update_msi: bool, version: &str, file_path: &PathBuf) {
 }
 
 pub fn get_download_file_from_url(url: &str) -> Option<PathBuf> {
+    // FS Support : l'URL se termine par `/download?token=…` ; le nom local est déduit de la
+    // version proposée (`.exe` / `.dmg` requis par update_to et extract_update_dmg).
+    if crate::is_custom_client() {
+        return crate::fs_support::update_file_name().map(|name| std::env::temp_dir().join(name));
+    }
     let filename = url.split('/').last()?;
     Some(std::env::temp_dir().join(filename))
 }

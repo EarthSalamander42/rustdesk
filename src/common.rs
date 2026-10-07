@@ -940,9 +940,8 @@ pub fn is_modifier(evt: &KeyEvent) -> bool {
 }
 
 pub fn check_software_update() {
-    if is_custom_client() {
-        return;
-    }
+    // FS Support : la vérification passe par api.fs-solutions.fr (voir do_check_fs_support_update),
+    // l'option « vérifier les mises à jour au démarrage » reste respectée.
     let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
     if config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
         std::thread::spawn(move || allow_err!(do_check_software_update()));
@@ -954,8 +953,8 @@ pub fn check_software_update() {
 #[tokio::main(flavor = "current_thread")]
 pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
     if is_custom_client() {
-        *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
-        return Ok(());
+        // Jamais d'appel à api.rustdesk.com pour un client personnalisé (FS Support).
+        return do_check_fs_support_update().await;
     }
 
     let (request, url) =
@@ -1000,6 +999,81 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
         }
         *SOFTWARE_UPDATE_URL.lock().unwrap() = response_url;
     } else {
+        *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+    }
+    Ok(())
+}
+
+/// FS Support : interroge api.fs-solutions.fr, qui répond `{ "version": "1.0.104", "url": "…" }`
+/// (`version` à null si aucune version n'est publiée pour cette plateforme).
+/// Si une version plus récente existe, `SOFTWARE_UPDATE_URL` reçoit le lien de téléchargement direct
+/// et l'événement Flutter `check_software_update_finish` affiche le bandeau existant.
+async fn do_check_fs_support_update() -> hbb_common::ResultType<()> {
+    let url = crate::fs_support::update_check_url();
+    let proxy_conf = Config::get_socks();
+    let tls_url = get_url_for_tls(&url, &proxy_conf);
+    let tls_type = get_cached_tls_type(tls_url);
+    let is_tls_not_cached = tls_type.is_none();
+    let tls_type = tls_type.unwrap_or(TlsType::Rustls);
+    // Certificat toujours vérifié : pas de repli « accepter un certificat invalide » pour une mise à jour.
+    let client = create_http_client_async(tls_type, false);
+    let response = match client.get(&url).send().await {
+        Ok(resp) => {
+            upsert_tls_cache(tls_url, tls_type, false);
+            resp
+        }
+        Err(err) => {
+            if is_tls_not_cached && err.is_request() {
+                let tls_type = TlsType::NativeTls;
+                let client = create_http_client_async(tls_type, false);
+                let resp = client.get(&url).send().await?;
+                upsert_tls_cache(tls_url, tls_type, false);
+                resp
+            } else {
+                return Err(err.into());
+            }
+        }
+    };
+    if !response.status().is_success() {
+        bail!("FS Support update check failed: HTTP {}", response.status());
+    }
+    let bytes = response.bytes().await?;
+    let body: Value = serde_json::from_slice(&bytes)?;
+    let latest_version = body
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let download_url = body
+        .get("url")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let current_version = crate::fs_support::product_version();
+    let is_newer = crate::fs_support::is_valid_update_version(&latest_version)
+        && crate::fs_support::is_valid_update_url(&download_url)
+        && get_version_number(&latest_version) > get_version_number(&current_version);
+    if is_newer {
+        log::info!(
+            "FS Support update available: {} -> {}",
+            current_version,
+            latest_version
+        );
+        crate::fs_support::set_latest_update_version(&latest_version);
+        #[cfg(feature = "flutter")]
+        {
+            let mut m = HashMap::new();
+            m.insert("name", "check_software_update_finish");
+            m.insert("url", &download_url);
+            if let Ok(data) = serde_json::to_string(&m) {
+                let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data);
+            }
+        }
+        *SOFTWARE_UPDATE_URL.lock().unwrap() = download_url;
+    } else {
+        crate::fs_support::set_latest_update_version("");
         *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
     }
     Ok(())
