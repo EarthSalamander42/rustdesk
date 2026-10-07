@@ -9,6 +9,41 @@ on:
       upload-tag:
         type: string
         default: "nightly"
+      # FS Support : portée du build. « all » = comportement RustDesk ; « fs-support » = nuit FS
+      # (Windows x64, macOS, Android) ; « fs-support-desktop » = sans Android ;
+      # « windows-x64 » = CI ; « windows-all » = Windows x64 + ARM64 (+ Sciter 32 bits).
+      build-scope:
+        type: string
+        default: "all"
+      # FS Support : version complète du build (ex. 1.0.104), fournie par fs-support-nightly.yml.
+      # Vide = comportement historique (vars.FS_SUPPORT_BASE_VERSION, sinon 1.0.0).
+      fs-version:
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      upload-artifact:
+        type: boolean
+        default: true
+      upload-tag:
+        type: string
+        default: "fs-nightly"
+      build-scope:
+        type: choice
+        default: "all"
+        options:
+          - "all"
+          - "fs-support"
+          - "fs-support-desktop"
+          - "windows-x64"
+          - "windows-all"
+      fs-version:
+        description: "Version FS Support (ex. 1.0.104) ; vide = FS_SUPPORT_BASE_VERSION"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
 
 # NOTE: F-Droid builder script 'flutter/build_fdroid.sh' reads environment
 # variables from this workflow!
@@ -45,16 +80,28 @@ env:
   VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
   VCPKG_CMAKE_VERSION: "4.3.0"
   ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836" # 2025.01.13, got "/opt/artifacts/vcpkg/vcpkg: No such file or directory" with latest version
-  VERSION: "1.5.0"
+  # FS Support : version publique FS (les fichiers bruts restent nommés rustdesk-<VERSION>-…).
+  VERSION: "${{ inputs.fs-version || vars.FS_SUPPORT_BASE_VERSION || '1.0.0' }}"
   NDK_VERSION: "r28c"
   #signing keys env variable checks
   ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
+  FS_SUPPORT_APP_NAME: "${{ vars.FS_SUPPORT_APP_NAME || 'FS Support' }}"
+  FS_RUSTDESK_HOST: "${{ secrets.FS_RUSTDESK_HOST || vars.FS_RUSTDESK_HOST }}"
+  FS_RUSTDESK_KEY: "${{ secrets.FS_RUSTDESK_KEY || vars.FS_RUSTDESK_KEY }}"
+  FS_RUSTDESK_RELAY: "${{ secrets.FS_RUSTDESK_RELAY || vars.FS_RUSTDESK_RELAY }}"
+  FS_RUSTDESK_API: "${{ secrets.FS_RUSTDESK_API || vars.FS_RUSTDESK_API }}"
+  # Lu à la compilation par src/fs_support.rs (option_env!), build.py et libs/portable/build.rs.
+  FS_SUPPORT_BASE_VERSION: "${{ inputs.fs-version || vars.FS_SUPPORT_BASE_VERSION || '1.0.0' }}"
+  FS_SUPPORT_BUILD_SHA: "${{ github.sha }}"
+  FS_BUILD_WINDOWS_MSI: "${{ vars.FS_BUILD_WINDOWS_MSI || 'false' }}"
 
 jobs:
   generate-sbom:
+    # FS Support : SBOM seulement en portée « all ».
+    if: ${{ inputs.build-scope == 'all' }}
     runs-on: ubuntu-latest
 
     permissions:
@@ -83,22 +130,17 @@ jobs:
             rustdesk.sbom.json
 
   generate-bridge:
+    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop' || inputs.build-scope == 'windows-x64' || inputs.build-scope == 'windows-all' }}
     uses: ./.github/workflows/bridge.yml
 
   build-RustDeskTempTopMostWindow:
+    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop' || inputs.build-scope == 'windows-x64' || inputs.build-scope == 'windows-all' }}
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     strategy:
       fail-fast: false
       matrix:
-        job:
-          - {
-              target: windows-2022,
-              platform: x64,
-            }
-          - {
-              target: windows-11-arm,
-              platform: ARM64,
-            }
+        # FS Support : ARM64 seulement en portée « all » / « windows-all » (FS ne publie que x64).
+        job: ${{ fromJSON((inputs.build-scope == 'all' || inputs.build-scope == 'windows-all') && '[{"target":"windows-2022","platform":"x64"},{"target":"windows-11-arm","platform":"ARM64"}]' || '[{"target":"windows-2022","platform":"x64"}]') }}
     with:
       upload-artifact: ${{ inputs.upload-artifact }}
       target: ${{ matrix.job.target }}
@@ -107,33 +149,16 @@ jobs:
       target_version: Windows10
 
   build-for-windows-flutter:
+    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop' || inputs.build-scope == 'windows-x64' || inputs.build-scope == 'windows-all' }}
     name: ${{ matrix.job.target }}
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
       matrix:
-        job:
-          # - { target: i686-pc-windows-msvc        , os: windows-2022                  }
-          # - { target: x86_64-pc-windows-gnu       , os: windows-2022                  }
-          - {
-              target: x86_64-pc-windows-msvc,
-              os: windows-2022,
-              arch: x86_64,
-              flutter-arch: x64,
-              vcpkg-triplet: x64-windows-static,
-              build-args: "--vram",
-            }
-          - {
-              target: aarch64-pc-windows-msvc,
-              os: windows-11-arm,
-              arch: aarch64,
-              flutter-arch: arm64,
-              vcpkg-triplet: arm64-windows-static,
-              # vram is x86/x64-only (NVENC needs CUDA, Intel MediaSDK needs __rdtsc);
-              # no NV/Intel/AMD hardware exists on Windows-on-ARM, so vram stays disabled here.
-              build-args: "",
-            }
+        # FS Support : x86_64 toujours ; aarch64 (windows-11-arm, Flutter 3.44) seulement en portée
+        # « all » / « windows-all ». vram reste x86/x64 uniquement (NVENC/Intel MediaSDK).
+        job: ${{ fromJSON((inputs.build-scope == 'all' || inputs.build-scope == 'windows-all') && '[{"target":"x86_64-pc-windows-msvc","os":"windows-2022","arch":"x86_64","flutter-arch":"x64","vcpkg-triplet":"x64-windows-static","build-args":"--vram"},{"target":"aarch64-pc-windows-msvc","os":"windows-11-arm","arch":"aarch64","flutter-arch":"arm64","vcpkg-triplet":"arm64-windows-static","build-args":""}]' || '[{"target":"x86_64-pc-windows-msvc","os":"windows-2022","arch":"x86_64","flutter-arch":"x64","vcpkg-triplet":"x64-windows-static","build-args":"--vram"}]') }}
     steps:
       - name: Export GitHub Actions cache environment variables
         uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
@@ -385,10 +410,11 @@ jobs:
         # Builds the MSI for the matrix arch. res/msi (WiX v4 + native CustomActions) carries
         # both x64 and ARM64 platform configs; WcaUtil/DUtil ship arm64 libs. msbuild platform
         # is x64 / ARM64; the produced Package.msi is globbed since its bin/<platform>/ dir varies.
-        if: env.UPLOAD_ARTIFACT == 'true'
+        # FS Support : MSI seulement si vars.FS_BUILD_WINDOWS_MSI == 'true'.
+        if: env.UPLOAD_ARTIFACT == 'true' && env.FS_BUILD_WINDOWS_MSI == 'true'
         run: |
           pushd ./res/msi
-          python preprocess.py --arp -d ../../rustdesk
+          python preprocess.py --arp --app-name "${{ env.FS_SUPPORT_APP_NAME }}" --manufacturer "FS Solutions" -d ../../rustdesk
           nuget restore msi.sln
           $msiPlatform = if ('${{ matrix.job.arch }}' -eq 'aarch64') { 'ARM64' } else { 'x64' }
           msbuild msi.sln -p:Configuration=Release -p:Platform=$msiPlatform /p:TargetVersion=Windows10
@@ -414,7 +440,8 @@ jobs:
         # Building the arm64 template on the native arm64 runner makes the ARM
         # package available: the build agents are x64 and cannot run
         # preprocess.py against an ARM exe.
-        if: env.UPLOAD_ARTIFACT == 'true'
+        # FS Support : gabarit MSI (rebranding RustDesk par client) inutile sans MSI FS.
+        if: env.UPLOAD_ARTIFACT == 'true' && env.FS_BUILD_WINDOWS_MSI == 'true'
         run: |
           git checkout -- res/msi
           cp -r ./rustdesk ./rustdesk-msi-template
@@ -438,7 +465,7 @@ jobs:
           rm -r -fo ./rustdesk-msi-template
 
       - name: Upload unsigned msi template
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: env.UPLOAD_ARTIFACT == 'true' && env.FS_BUILD_WINDOWS_MSI == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustdesk-unsigned-msi-template-${{ matrix.job.arch }}
@@ -462,6 +489,7 @@ jobs:
 
   # The fallback for the flutter version, we use Sciter for 32bit Windows.
   build-for-windows-sciter:
+    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'windows-all' }}
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
     runs-on: ${{ matrix.job.os }}
     # Temporarily disable this action due to additional test is needed.
@@ -622,7 +650,7 @@ jobs:
             ./SignOutput/rustdesk-*.exe
 
   build-rustdesk-ios:
-    if: ${{ inputs.upload-artifact }}
+    if: ${{ inputs.build-scope == 'all' && inputs.upload-artifact }}
     name: build rustdesk ios ipa
     runs-on: ${{ matrix.job.os }}
     needs: [generate-bridge]
@@ -744,6 +772,7 @@ jobs:
 
 
   build-for-macOS:
+    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop' }}
     name: ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
     needs: [generate-bridge]
@@ -908,6 +937,23 @@ jobs:
           cargo -V
           rustc -V
 
+      - name: Build FS Support macOS icon
+        shell: bash
+        run: |
+          ICONSET="$(mktemp -d)/AppIcon.iconset"
+          mkdir -p "$ICONSET"
+          sips -z 16 16 res/mac-icon.png --out "$ICONSET/icon_16x16.png"
+          sips -z 32 32 res/mac-icon.png --out "$ICONSET/icon_16x16@2x.png"
+          sips -z 32 32 res/mac-icon.png --out "$ICONSET/icon_32x32.png"
+          sips -z 64 64 res/mac-icon.png --out "$ICONSET/icon_32x32@2x.png"
+          sips -z 128 128 res/mac-icon.png --out "$ICONSET/icon_128x128.png"
+          sips -z 256 256 res/mac-icon.png --out "$ICONSET/icon_128x128@2x.png"
+          sips -z 256 256 res/mac-icon.png --out "$ICONSET/icon_256x256.png"
+          sips -z 512 512 res/mac-icon.png --out "$ICONSET/icon_256x256@2x.png"
+          sips -z 512 512 res/mac-icon.png --out "$ICONSET/icon_512x512.png"
+          sips -z 1024 1024 res/mac-icon.png --out "$ICONSET/icon_512x512@2x.png"
+          iconutil -c icns "$ICONSET" -o flutter/macos/Runner/AppIcon.icns
+
       - name: Build rustdesk
         run: |
           if [ "${{ matrix.job.target }}" = "aarch64-apple-darwin" ]; then
@@ -925,7 +971,7 @@ jobs:
           CREATE_DMG="$(command -v create-dmg)"
           CREATE_DMG="$(readlink -f "$CREATE_DMG")"
           sed -i -e 's/MAXIMUM_UNMOUNTING_ATTEMPTS=3/MAXIMUM_UNMOUNTING_ATTEMPTS=7/' "$CREATE_DMG"
-          create-dmg --icon "RustDesk.app" 200 190 --hide-extension "RustDesk.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg ./flutter/build/macos/Build/Products/Release/RustDesk.app
+          create-dmg --icon "${{ env.FS_SUPPORT_APP_NAME }}.app" 200 190 --hide-extension "${{ env.FS_SUPPORT_APP_NAME }}.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg "./flutter/build/macos/Build/Products/Release/${{ env.FS_SUPPORT_APP_NAME }}.app"
 
       - name: Upload unsigned macOS app
         if: env.UPLOAD_ARTIFACT == 'true'
@@ -948,10 +994,10 @@ jobs:
           rm -rf *.dmg || true
           # the identity secret carries its own shell quoting, so expand it inline like the dmg codesign below
           bash ./.github/scripts/sign-macos-app.sh \
-            ./flutter/build/macos/Build/Products/Release/RustDesk.app \
+            "./flutter/build/macos/Build/Products/Release/${{ env.FS_SUPPORT_APP_NAME }}.app" \
             ${{ secrets.MACOS_CODESIGN_IDENTITY }} \
             ./flutter/macos/Runner/Release.entitlements
-          create-dmg --icon "RustDesk.app" 200 190 --hide-extension "RustDesk.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}.dmg ./flutter/build/macos/Build/Products/Release/RustDesk.app
+          create-dmg --icon "${{ env.FS_SUPPORT_APP_NAME }}.app" 200 190 --hide-extension "${{ env.FS_SUPPORT_APP_NAME }}.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}.dmg "./flutter/build/macos/Build/Products/Release/${{ env.FS_SUPPORT_APP_NAME }}.app"
           codesign --force --options runtime -s ${{ secrets.MACOS_CODESIGN_IDENTITY }} --deep --strict rustdesk-${{ env.VERSION }}.dmg -vvv
           # notarize the rustdesk-${{ env.VERSION }}.dmg
           rcodesign notary-submit --api-key-path ${{ github.workspace }}/rustdesk.json  --staple rustdesk-${{ env.VERSION }}.dmg
@@ -978,7 +1024,7 @@ jobs:
       - build-for-windows-flutter
       - build-for-windows-sciter
     runs-on: ubuntu-latest
-    if: ${{ inputs.upload-artifact }}
+    if: ${{ inputs.build-scope == 'all' && inputs.upload-artifact }}
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -1034,6 +1080,7 @@ jobs:
           files: rustdesk-${{ env.VERSION }}-unsigned.tar.gz
 
   build-rustdesk-android:
+    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' }}
     needs: [generate-bridge]
     name: build rustdesk android apk ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
@@ -1228,6 +1275,8 @@ jobs:
           path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
 
       - name: Build rustdesk
+        # FS Support : les APK par ABI ne sont pas publiés ; ce job ne fournit que les .so.
+        if: ${{ inputs.build-scope != 'fs-support' }}
         shell: bash
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
@@ -1281,6 +1330,7 @@ jobs:
 
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
+        if: ${{ inputs.build-scope != 'fs-support' }}
         shell: bash
         run: |
           BUILD_TOOL_VERSION=$(ls /usr/local/lib/android/sdk/build-tools/ | tail -n 1)
@@ -1289,7 +1339,7 @@ jobs:
 
       - uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         name: Sign app APK
-        if: env.ANDROID_SIGNING_KEY != null
+        if: inputs.build-scope != 'fs-support' && env.ANDROID_SIGNING_KEY != null
         id: sign-rustdesk
         with:
           releaseDirectory: ./signed-apk
@@ -1302,14 +1352,14 @@ jobs:
           BUILD_TOOLS_VERSION: ${{ env.ANDROID_SIGN_TOOL_VERSION }}
 
       - name: Upload Artifacts
-        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
+        if: inputs.build-scope != 'fs-support' && env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
-        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
+        if: inputs.build-scope != 'fs-support' && env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1318,7 +1368,7 @@ jobs:
             ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish unsigned apk package
-        if: env.ANDROID_SIGNING_KEY == null && env.UPLOAD_ARTIFACT == 'true'
+        if: inputs.build-scope != 'fs-support' && env.ANDROID_SIGNING_KEY == null && env.UPLOAD_ARTIFACT == 'true'
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1329,7 +1379,7 @@ jobs:
   build-rustdesk-android-universal:
     needs: [build-rustdesk-android]
     name: build rustdesk android universal apk
-    if: ${{ inputs.upload-artifact }}
+    if: ${{ (inputs.build-scope == 'all' || inputs.build-scope == 'fs-support') && inputs.upload-artifact }}
     runs-on: ubuntu-24.04
     env:
       reltype: release
@@ -1393,6 +1443,31 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Configure FS Support release signing
+        if: ${{ inputs.build-scope == 'fs-support' }}
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
+          SIGNING_ALIAS: ${{ secrets.ANDROID_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for value in SIGNING_KEY SIGNING_ALIAS STORE_PASSWORD KEY_PASSWORD; do
+            if [[ -z "${!value:-}" ]]; then
+              echo "Required Android signing secret is missing: ${value}" >&2
+              exit 1
+            fi
+          done
+          printf '%s' "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/fs-support-release.jks"
+          chmod 600 "$RUNNER_TEMP/fs-support-release.jks"
+          cat > flutter/android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$SIGNING_ALIAS
+          storeFile=$RUNNER_TEMP/fs-support-release.jks
+          EOF
+
       - name: Install flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
@@ -1445,8 +1520,10 @@ jobs:
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
           sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
-          # temporary use debug sign config
-          sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
+          if [[ "${{ inputs.build-scope }}" != "fs-support" ]]; then
+            # Upstream builds may still opt into the historical debug fallback.
+            sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
+          fi
           mv ./flutter/android/app/src/main/jniLibs/arm64-v8a/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
           cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
           mv ./flutter/android/app/src/main/jniLibs/armeabi-v7a/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/armeabi-v7a/librustdesk.so
@@ -1457,15 +1534,38 @@ jobs:
             mv ./flutter/android/app/src/main/jniLibs/x86/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/x86/librustdesk.so
             cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/i686-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/x86/
           fi
+          # FS Support : versionName = version du build, versionCode croissant (majeur*1000000 + mineur*10000 + patch)
+          # pour qu'Android accepte l'APK comme mise à jour de la version installée.
+          FLUTTER_VERSION_ARGS=""
+          if [[ "${{ inputs.build-scope }}" == "fs-support" ]]; then
+            IFS=. read -r V_MAJ V_MIN V_PAT _ <<< "${{ env.VERSION }}"
+            BUILD_NUMBER=$(( 10#${V_MAJ:-1} * 1000000 + 10#${V_MIN:-0} * 10000 + 10#${V_PAT:-0} ))
+            FLUTTER_VERSION_ARGS="--build-name ${{ env.VERSION }} --build-number ${BUILD_NUMBER}"
+            echo "FS Support Android : ${FLUTTER_VERSION_ARGS}"
+          fi
           # build flutter
           pushd flutter
-          flutter build apk "--${{ env.reltype }}" --target-platform android-arm64,android-arm,android-x64${{ env.x86_target }}
+          flutter build apk "--${{ env.reltype }}" --target-platform android-arm64,android-arm,android-x64${{ env.x86_target }} ${FLUTTER_VERSION_ARGS}
           popd
           mkdir -p signed-apk
           mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
 
+      - name: Verify FS Support Android SDK target
+        if: ${{ inputs.build-scope == 'fs-support' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$AAPT"
+          BADGING="$($AAPT dump badging signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk)"
+          printf '%s\n' "$BADGING" | grep -E "^package:|^sdkVersion:|^targetSdkVersion:"
+          # RustDesk 1.5.0 cible Android 16 (API 36), comme flutter/android/app/build.gradle.
+          printf '%s\n' "$BADGING" | grep -q "targetSdkVersion:'36'"
+          printf '%s\n' "$BADGING" | grep -q "versionName='${{ env.VERSION }}'"
+
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
+        if: ${{ inputs.build-scope != 'fs-support' }}
         shell: bash
         run: |
           BUILD_TOOL_VERSION=$(ls /usr/local/lib/android/sdk/build-tools/ | tail -n 1)
@@ -1474,7 +1574,7 @@ jobs:
 
       - uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         name: Sign app APK
-        if: env.ANDROID_SIGNING_KEY != null
+        if: inputs.build-scope != 'fs-support' && env.ANDROID_SIGNING_KEY != null
         id: sign-rustdesk
         with:
           releaseDirectory: ./signed-apk
@@ -1487,14 +1587,14 @@ jobs:
           BUILD_TOOLS_VERSION: ${{ env.ANDROID_SIGN_TOOL_VERSION }}
 
       - name: Upload Artifacts
-        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
+        if: inputs.build-scope != 'fs-support' && env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
-        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
+        if: inputs.build-scope != 'fs-support' && env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1503,7 +1603,7 @@ jobs:
             ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish unsigned apk package
-        if: env.ANDROID_SIGNING_KEY == null && env.UPLOAD_ARTIFACT == 'true'
+        if: inputs.build-scope != 'fs-support' && env.ANDROID_SIGNING_KEY == null && env.UPLOAD_ARTIFACT == 'true'
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1511,7 +1611,17 @@ jobs:
           files: |
             signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
 
+      - name: Publish FS Support universal APK
+        if: inputs.build-scope == 'fs-support' && env.UPLOAD_ARTIFACT == 'true'
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
+
   build-rustdesk-linux:
+    # FS Support ne distribue pas Linux (décision du 06/10/2026) : construit seulement en portée « all ».
+    if: ${{ inputs.build-scope == 'all' }}
     needs: [generate-bridge]
     name: build rustdesk linux ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.on }}
@@ -1861,6 +1971,8 @@ jobs:
   # old for it. A separate job rather than a matrix entry of build-rustdesk-linux: appimage and
   # flatpak need that job, and a failure here must not skip them.
   build-rustdesk-linux-drm:
+    # FS Support ne distribue pas Linux : portée « all » seulement.
+    if: ${{ inputs.build-scope == 'all' }}
     needs: [generate-bridge]
     name: build rustdesk linux drm x86_64
     runs-on: ubuntu-22.04
@@ -2171,7 +2283,7 @@ jobs:
           path: ${{ env.DRM_DEB }}
 
   build-rustdesk-linux-sciter:
-    if: ${{ inputs.upload-artifact }}
+    if: ${{ inputs.build-scope == 'all' && inputs.upload-artifact }}
     runs-on: ${{ matrix.job.on }}
     name: build-rustdesk-linux-sciter ${{ matrix.job.target }}
     strategy:
@@ -2416,7 +2528,7 @@ jobs:
     name: Build appimage ${{ matrix.job.target }}
     needs: [build-rustdesk-linux]
     runs-on: ubuntu-22.04
-    if: ${{ inputs.upload-artifact }}
+    if: ${{ inputs.build-scope == 'all' && inputs.upload-artifact }}
     strategy:
       fail-fast: false
       matrix:
@@ -2471,7 +2583,7 @@ jobs:
       - build-rustdesk-linux
       - build-rustdesk-linux-sciter
     runs-on: ${{ matrix.job.on }}
-    if: ${{ inputs.upload-artifact }}
+    if: ${{ inputs.build-scope == 'all' && inputs.upload-artifact }}
     strategy:
       fail-fast: false
       matrix:

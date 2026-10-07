@@ -6,19 +6,27 @@ on:
     paths-ignore:
     - "docs/**"
     - "README.md"
+  # FS Support : chaque envoi d'une branche fs/** compile (Windows x64) sans ouvrir de PR.
+  # ".github/**" n'est plus ignoré : au premier envoi, une branche FS est comparée à master ;
+  # une branche qui ne touche qu'un workflow ne déclencherait alors aucune compilation.
   push:
     branches:
       - master
+      - "fs/**"
     paths-ignore:
-      - ".github/**"
       - "docs/**"
       - "README.md"
       - "res/**"
       - "appimage/**"
       - "flatpak/**"
 
+# FS Support : le workflow appelé déclare contents: write ; sans cette autorisation l'exécution échouait au démarrage.
+permissions:
+  contents: write
+
 jobs:
   run-ci:
     uses: ./.github/workflows/flutter-build.yml
     with:
       upload-artifact: false
+      build-scope: "windows-x64"
