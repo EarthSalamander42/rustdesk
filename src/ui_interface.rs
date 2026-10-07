@@ -748,6 +748,10 @@ pub fn current_is_wayland() -> bool {
 
 #[inline]
 pub fn get_new_version() -> String {
+    // FS Support : l'URL est un lien de téléchargement direct, la version est mémorisée à part.
+    if crate::common::is_custom_client() {
+        return crate::fs_support::latest_update_version();
+    }
     (*SOFTWARE_UPDATE_URL
         .lock()
         .unwrap()
@@ -759,6 +763,9 @@ pub fn get_new_version() -> String {
 
 #[inline]
 pub fn get_version() -> String {
+    if crate::common::is_custom_client() {
+        return crate::fs_support::display_version();
+    }
     crate::VERSION.to_owned()
 }
 
