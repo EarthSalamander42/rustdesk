@@ -155,7 +155,12 @@ pub fn update_file_name() -> Option<String> {
         return None;
     }
     if cfg!(target_os = "windows") {
-        Some(format!("fs-support-{version}-windows-x86_64.exe"))
+        // RustDesk 1.5.0 gère aussi Windows ARM64 : même suffixe que release_arch_suffix().
+        if cfg!(target_arch = "aarch64") {
+            Some(format!("fs-support-{version}-windows-aarch64.exe"))
+        } else {
+            Some(format!("fs-support-{version}-windows-x86_64.exe"))
+        }
     } else if cfg!(target_os = "macos") {
         if cfg!(target_arch = "aarch64") {
             Some(format!("fs-support-{version}-macos-aarch64.dmg"))

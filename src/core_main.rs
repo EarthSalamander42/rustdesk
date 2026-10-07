@@ -3,9 +3,10 @@ use crate::client::translate;
 #[cfg(not(debug_assertions))]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::platform::breakdown_callback;
+use base::config::keys;
 #[cfg(not(debug_assertions))]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use hbb_common::platform::register_breakdown_handler;
+use base::platform::register_breakdown_handler;
 use hbb_common::{config, log};
 #[cfg(windows)]
 use tauri_winrt_notification::{Duration, Sound, Toast};
@@ -114,7 +115,7 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     #[cfg(windows)]
     if args.contains(&"--connect".to_string()) || args.contains(&"--view-camera".to_string()) {
-        hbb_common::platform::windows::start_cpu_performance_monitor();
+        base::platform::windows::start_cpu_performance_monitor();
     }
     #[cfg(feature = "flutter")]
     if _is_flutter_invoke_new_connection {
@@ -127,6 +128,13 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     if args.contains(&"--noinstall".to_string()) {
         args.clear();
+    }
+    // The portable wrapper injects `--install` when its name ends with `install.exe`,
+    // including `no-install.exe`. Drop the argument instead of exiting so disabled
+    // clients can continue running as portable applications.
+    if config::is_disable_installation() {
+        args.retain(|arg| arg != "--install");
+        flutter_args.retain(|arg| arg != "--install");
     }
     if args.len() > 0 {
         if args[0] == "--version" {
@@ -184,9 +192,6 @@ pub fn core_main() -> Option<Vec<String>> {
         crate::platform::elevate_or_run_as_system(click_setup, _is_elevate, _is_run_as_system);
         return None;
     }
-    #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    init_plugins(&args);
     if args.is_empty() || crate::common::is_empty_uni_link(&args[0]) {
         #[cfg(target_os = "macos")]
         {
@@ -263,11 +268,9 @@ pub fn core_main() -> Option<Vec<String>> {
                 if config::is_disable_installation() {
                     return None;
                 }
-                #[cfg(not(windows))]
-                let options = "desktopicon startmenu";
-                #[cfg(windows)]
-                let options = "desktopicon startmenu printer";
-                let res = platform::install_me(options, "".to_owned(), true, args.len() > 1);
+                let (printer_override, debug) = parse_silent_install_args(&args);
+                let options = platform::get_silent_install_options(printer_override);
+                let res = platform::install_me(options, "".to_owned(), true, debug);
                 let text = match res {
                     Ok(_) => translate("Installation Successful!".to_string()),
                     Err(err) => {
@@ -433,7 +436,7 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             return None;
         } else if args[0] == "--password" {
-            if config::is_disable_settings() {
+            if is_cli_setting_change_disabled() {
                 println!("Settings are disabled!");
                 return None;
             }
@@ -475,7 +478,7 @@ pub fn core_main() -> Option<Vec<String>> {
             println!("{}", crate::ipc::get_id());
             return None;
         } else if args[0] == "--set-id" {
-            if config::is_disable_settings() {
+            if is_cli_setting_change_disabled() {
                 println!("Settings are disabled!");
                 return None;
             }
@@ -522,7 +525,7 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             return None;
         } else if args[0] == "--option" {
-            if config::is_disable_settings() {
+            if is_cli_setting_change_disabled() {
                 println!("Settings are disabled!");
                 return None;
             }
@@ -645,6 +648,8 @@ pub fn core_main() -> Option<Vec<String>> {
         } else if args[0] == "--deploy" {
             if config::Config::no_register_device() {
                 println!("Cannot deploy an unregistrable device!");
+            } else if config::is_outgoing_only() {
+                println!("Cannot deploy Outgoing-only clients.");
             } else if crate::platform::is_installed() && is_root() {
                 let max = args.len() - 1;
                 let pos = args.iter().position(|x| x == "--token").unwrap_or(max);
@@ -661,73 +666,30 @@ pub fn core_main() -> Option<Vec<String>> {
                         None
                     }
                 };
-                let new_id = get_value("--id");
-                let local_id = crate::ipc::get_id();
-                let id_to_deploy = new_id.clone().unwrap_or_else(|| local_id.clone());
-                let uuid = crate::encode64(hbb_common::get_uuid());
-                let pk = crate::encode64(
-                    hbb_common::config::Config::get_key_pair().1,
-                );
-                let body = serde_json::json!({
-                    "id": id_to_deploy,
-                    "uuid": uuid,
-                    "pk": pk,
-                });
-                let header = "Authorization: Bearer ".to_owned() + &token;
-                let url = crate::ui_interface::get_api_server() + "/api/devices/deploy";
-                match crate::post_request_sync(url, body.to_string(), &header) {
-                    Err(err) => {
-                        println!("Request failed: {}", err);
-                        std::process::exit(1);
+                // An empty --id (e.g. an unset var) would deploy a blank id; the Android flow guards this too (#15146).
+                let new_id = get_value("--id").filter(|s| !s.is_empty());
+                match crate::ui_interface::deploy_device(token, new_id) {
+                    crate::ui_interface::DeployResult::Ok => {
+                        println!("Device deployed.");
                     }
-                    Ok(text) => {
-                        let parsed: serde_json::Value =
-                            serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
-                        let result = parsed["result"].as_str().unwrap_or("");
-                        match result {
-                            "OK" => {
-                                if let Some(ref new_id) = new_id {
-                                    if *new_id != local_id {
-                                        if let Err(err) =
-                                            crate::ipc::set_config("id", new_id.clone())
-                                        {
-                                            println!(
-                                                "Failed to persist deployed id locally: {}",
-                                                err
-                                            );
-                                            std::process::exit(1);
-                                        }
-                                    }
-                                }
-                                if let Err(err) = crate::ipc::notify_deployed() {
-                                    log::warn!("Failed to notify deployed state: {}", err);
-                                }
-                                println!("Device deployed.");
-                            }
-                            "NOT_ENABLED" => {
-                                println!("Server does not require deployment.");
-                                std::process::exit(3);
-                            }
-                            "INVALID_INPUT" => {
-                                println!("Invalid input.");
-                                std::process::exit(5);
-                            }
-                            "ID_TAKEN" => {
-                                println!(
-                                    "Id `{}` is already used by another machine on the server.",
-                                    id_to_deploy
-                                );
-                                std::process::exit(6);
-                            }
-                            _ => {
-                                if text.is_empty() {
-                                    println!("Unknown response.");
-                                } else {
-                                    println!("{}", text);
-                                }
-                                std::process::exit(1);
-                            }
-                        }
+                    crate::ui_interface::DeployResult::NotEnabled => {
+                        println!("Server does not require deployment.");
+                        std::process::exit(3);
+                    }
+                    crate::ui_interface::DeployResult::InvalidInput => {
+                        println!("Invalid input.");
+                        std::process::exit(5);
+                    }
+                    crate::ui_interface::DeployResult::IdTaken(id) => {
+                        println!(
+                            "Id `{}` is already used by another machine on the server.",
+                            id
+                        );
+                        std::process::exit(6);
+                    }
+                    crate::ui_interface::DeployResult::Error(err) => {
+                        println!("{}", err);
+                        std::process::exit(1);
                     }
                 }
             } else {
@@ -753,14 +715,6 @@ pub fn core_main() -> Option<Vec<String>> {
             // call connection manager to establish connections
             // meanwhile, return true to call flutter window to show control panel
             crate::ui_interface::start_option_status_sync();
-        } else if args[0] == "--cm-no-ui" {
-            #[cfg(feature = "flutter")]
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            {
-                crate::ui_interface::start_option_status_sync();
-                crate::flutter::connection_manager::start_cm_no_ui();
-            }
-            return None;
         } else if args[0] == "--whiteboard" {
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             {
@@ -774,22 +728,6 @@ pub fn core_main() -> Option<Vec<String>> {
                 crate::platform::gtk_sudo::exec();
             }
             return None;
-        } else {
-            #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
-            #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            if args[0] == "--plugin-install" {
-                if args.len() == 2 {
-                    crate::plugin::change_uninstall_plugin(&args[1], false);
-                } else if args.len() == 3 {
-                    crate::plugin::install_plugin_with_url(&args[1], &args[2]);
-                }
-                return None;
-            } else if args[0] == "--plugin-uninstall" {
-                if args.len() == 2 {
-                    crate::plugin::change_uninstall_plugin(&args[1], true);
-                }
-                return None;
-            }
         }
     }
     //_async_logger_holder.map(|x| x.flush());
@@ -797,23 +735,6 @@ pub fn core_main() -> Option<Vec<String>> {
     return Some(flutter_args);
     #[cfg(not(feature = "flutter"))]
     return Some(args);
-}
-
-#[inline]
-#[cfg(all(feature = "flutter", feature = "plugin_framework"))]
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-fn init_plugins(args: &Vec<String>) {
-    if args.is_empty() || "--server" == (&args[0] as &str) {
-        #[cfg(debug_assertions)]
-        let load_plugins = true;
-        #[cfg(not(debug_assertions))]
-        let load_plugins = crate::platform::is_installed();
-        if load_plugins {
-            crate::plugin::init();
-        }
-    } else if "--service" == (&args[0] as &str) {
-        hbb_common::allow_err!(crate::plugin::remove_uninstalled());
-    }
 }
 
 fn import_config(path: &str) {
@@ -966,6 +887,31 @@ fn is_user_main_ipc_scope_cli_command(args: &[String]) -> bool {
             | Some("--assign")
             | Some("--deploy")
     )
+}
+
+#[inline]
+fn is_cli_setting_change_disabled() -> bool {
+    let option = keys::OPTION_ALLOW_COMMAND_LINE_SETTINGS_WHEN_SETTINGS_DISABLED;
+    let allow_command_line_settings =
+        config::option2bool(option, &crate::get_builtin_option(option));
+    config::is_disable_settings() && !allow_command_line_settings
+}
+
+#[cfg(windows)]
+fn parse_silent_install_args(args: &[String]) -> (Option<bool>, bool) {
+    let mut printer_override = None;
+    let mut debug = false;
+
+    for arg in args.iter().skip(1) {
+        match arg.as_str() {
+            "printer=1" => printer_override = Some(true),
+            "printer=0" => printer_override = Some(false),
+            "debug" => debug = true,
+            _ => {}
+        }
+    }
+
+    (printer_override, debug)
 }
 
 #[cfg(test)]
