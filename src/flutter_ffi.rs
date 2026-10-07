@@ -51,6 +51,7 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     } else {
         crate::read_custom_client(custom_client_config);
     }
+    crate::fs_support::apply_defaults();
     #[cfg(target_os = "android")]
     {
         // flexi_logger can't work when android_logger initialized.
@@ -2738,12 +2739,15 @@ pub fn main_get_common(key: String) -> String {
                     Some(arch) => format!("rustdesk-{_version}-{arch}.msi"),
                     None => "error:unsupported".to_owned(),
                 },
-                (Ok(true), true) | (Ok(false), _) => {
-                    match crate::platform::windows::release_arch_suffix() {
-                        Some(arch) => format!("rustdesk-{_version}-{arch}.exe"),
-                        None => "error:unsupported".to_owned(),
-                    }
-                }
+                // FS Support : la release FS publie fs-support-<version>-windows-<arch>.exe (pas de MSI).
+                (Ok(_), true) => match crate::platform::windows::release_arch_suffix() {
+                    Some(arch) => format!("fs-support-{_version}-windows-{arch}.exe"),
+                    None => "error:unsupported".to_owned(),
+                },
+                (Ok(false), false) => match crate::platform::windows::release_arch_suffix() {
+                    Some(arch) => format!("rustdesk-{_version}-{arch}.exe"),
+                    None => "error:unsupported".to_owned(),
+                },
                 (Err(e), _) => {
                     log::error!("Failed to check if is msi: {}", e);
                     format!("error:update-failed-check-msi-tip")
@@ -2751,6 +2755,15 @@ pub fn main_get_common(key: String) -> String {
             };
             #[cfg(target_os = "macos")]
             {
+                if crate::common::is_custom_client() {
+                    return if cfg!(target_arch = "x86_64") {
+                        format!("fs-support-{_version}-macos-x86_64.dmg")
+                    } else if cfg!(target_arch = "aarch64") {
+                        format!("fs-support-{_version}-macos-aarch64.dmg")
+                    } else {
+                        "error:unsupported".to_owned()
+                    };
+                }
                 return if cfg!(target_arch = "x86_64") {
                     format!("rustdesk-{_version}-x86_64.dmg")
                 } else if cfg!(target_arch = "aarch64") {
