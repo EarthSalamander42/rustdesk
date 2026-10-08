@@ -4,11 +4,6 @@ on:
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
-    inputs:
-      mac-intel:
-        description: "Construire aussi macOS Intel (sinon : seulement la nuit du dimanche)"
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -23,7 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      mac-intel: ${{ steps.mac-intel.outputs.build }}
     env:
       FS_SUPPORT_BASE_VERSION: ${{ vars.FS_SUPPORT_BASE_VERSION || '1.0.0' }}
       RUN_NUMBER: ${{ github.run_number }}
@@ -44,22 +38,6 @@ jobs:
           echo "FS Support version: $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      # macOS Intel = le build le plus long (~45 min) pour un parc qui disparaît : une fois par
-      # semaine (nuit du dimanche, UTC) ou à la demande. Les autres nuits, la release garde le
-      # dernier .dmg Intel publié (voir « Normalize »), sous son propre numéro de version.
-      - name: Decide macOS Intel build
-        id: mac-intel
-        shell: bash
-        env:
-          EVENT: ${{ github.event_name }}
-          ASKED: ${{ inputs.mac-intel }}
-        run: |
-          BUILD=false
-          if [[ "$ASKED" == "true" ]]; then BUILD=true; fi
-          if [[ "$EVENT" == "schedule" && "$(date -u +%u)" == "7" ]]; then BUILD=true; fi
-          echo "macOS Intel : $BUILD"
-          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
-
   run-fs-support-build:
     needs: prepare-fs-support-version
     uses: ./.github/workflows/flutter-build.yml
@@ -69,7 +47,6 @@ jobs:
       upload-tag: "fs-nightly"
       build-scope: "fs-support"
       fs-version: ${{ needs.prepare-fs-support-version.outputs.version }}
-      macos-x64: ${{ needs.prepare-fs-support-version.outputs.mac-intel == 'true' }}
 
   normalize-fs-support-release:
     name: Normalize FS Support release assets
@@ -133,15 +110,7 @@ jobs:
           tar --exclude-vcs --exclude="$WORK_DIR" -czf "$OUT_DIR/fs-support-${VERSION}-source.tar.gz" .
 
           RELEASE_ID="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.id')"
-          # macOS Intel n'est construit qu'une nuit par semaine : sans nouveau .dmg Intel, on garde
-          # le dernier publié (fs-support-<sa version>-macos-x86_64.dmg). Le site lit la version
-          # dans le nom : pas de fausse mise à jour pour les Mac Intel.
-          KEEP_PATTERN='^$'
-          if [[ ! -f "$OUT_DIR/fs-support-${VERSION}-macos-x86_64.dmg" ]]; then
-            KEEP_PATTERN='^fs-support-[0-9.]+-macos-x86_64[.]dmg$'
-            echo "Pas de macOS Intel dans ce build : le dernier .dmg Intel publié est conservé."
-          fi
-          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --paginate --jq ".[] | select(.name | test(\"^(rustdesk-|fs-support-)\")) | select(.name | test(\"$KEEP_PATTERN\") | not) | .id" | while read -r asset_id; do
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --paginate --jq '.[] | select(.name | test("^(rustdesk-|fs-support-)")) | .id' | while read -r asset_id; do
             [[ -n "$asset_id" ]] && gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
           done
 

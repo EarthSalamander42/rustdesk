@@ -20,7 +20,7 @@ on:
       fs-version:
         type: string
         default: ""
-      # FS Support : architectures macOS construites (le Mac Intel ne part plus qu'une fois par semaine).
+      # FS Support : architectures macOS construites (défaut : les deux ; le build de test rapide choisit).
       macos-x64:
         type: boolean
         default: true
