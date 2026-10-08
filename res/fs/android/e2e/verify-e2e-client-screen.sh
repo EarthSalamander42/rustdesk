@@ -7,12 +7,11 @@
 # (etape de l'assistant). On simule le boot : le service doit demander la capture et la fenetre
 # systeme de consentement doit s'ouvrir.
 #
-# Essentiel (fait echouer le job) : mode actif, accessibilite liee, et le chemin boot -> service ->
-# demande de capture (projection active OU fenetre de consentement ouverte au boot).
-# NON essentiel (rapporte seulement) : l'auto-clic du consentement par l'accessibilite, car le
-# dialogue systeme MediaProjectionPermissionActivity n'expose pas son contenu a l'accessibilite sur
-# l'emulateur (nœuds non lisibles) — a verifier sur un vrai ecran (ROM Droidlogic). Idem pour
-# l'auto-validation de l'installateur de mise a jour (voir la limite versionCode en CI).
+# Essentiel (fait echouer le job) : mode actif, accessibilite liee, et au boot le consentement de
+# capture est VALIDE automatiquement par le service (projection active) — le bouton positif etant
+# cible par identifiant connu ou par texte (cliquable), hors libelles negatifs.
+# NON essentiel (rapporte seulement) : l'auto-validation de l'installateur de mise a jour (limite
+# CI : pas de 2e APK a versionCode superieur).
 #
 # Variables : API_LEVEL, E2E_OUT.
 set -u
@@ -140,24 +139,19 @@ ash dumpsys media_projection > "$OUT/client-screen-media_projection-$API.txt" 2>
 adb exec-out screencap -p > "$OUT/client-screen-apres-$API.png" 2>/dev/null || true
 WIN="$(ash dumpsys window | grep -i MediaProjectionPermission | head -n 1)"
 
-# ESSENTIEL : le chemin boot -> service -> demande de capture doit fonctionner, c-a-d la projection
-# active (auto-clic reussi) OU au moins la fenetre de consentement ouverte au boot.
-# NON ESSENTIEL (rapporte seulement) : l'auto-clic lui-meme. Sur emulateur, le dialogue systeme
-# MediaProjectionPermissionActivity n'expose pas son contenu a l'accessibilite (nœuds non lisibles),
-# donc le service ne peut ni lire le libelle « FS Support » ni trouver le bouton : impossible de
-# valider le clic ici. A verifier sur un vrai ecran (ROM Droidlogic), ou le dialogue est accessible.
+# ESSENTIEL : le consentement de capture doit etre valide automatiquement au boot (projection active).
+# Diagnostic remonte en annotations : dernier cas (a/b/c) vu par le service + enumeration des fenetres
+# (paquet, titre, racine lisible, textes, nœuds cliquables id+texte) pour cibler le bouton.
 CASE_LOG="$(adb logcat -d 2>/dev/null | grep -F 'FS Support' \
   | grep -iE 'consentement de capture valide|capture NON validee|capture fenetres' \
   | tail -n 1 | sed 's/.*FS Support : //; s/[^[:print:]]//g')"
 if [ "$CAPOK" = 1 ]; then
   notice "Consentement de capture valide automatiquement : projection active pour $PKG"
   [ -n "$CASE_LOG" ] && notice "Journal : $CASE_LOG"
-elif [ -n "$WIN" ]; then
-  notice "Boot -> service -> demande de capture OK : fenetre de consentement ouverte au boot (MediaProjectionPermissionActivity)"
-  warn "Auto-clic du consentement NON confirme sur emulateur : le dialogue systeme n'expose pas ses nœuds a l'accessibilite. A verifier sur le vrai ecran Droidlogic."
-  [ -n "$CASE_LOG" ] && warn "Diagnostic auto-clic (dernier cas vu par le service) : $CASE_LOG"
 else
-  essential_fail "Capture NON demarree au boot : ni projection active ni fenetre de consentement (chemin boot -> service -> demande de capture casse)"
+  [ -n "$WIN" ] && notice "Fenetre de consentement ouverte au boot (MediaProjectionPermissionActivity), mais auto-clic non abouti"
+  [ -n "$CASE_LOG" ] && warn "Diagnostic (dernier cas / fenetres vues par le service) : $CASE_LOG"
+  essential_fail "Consentement de capture NON valide automatiquement au boot (fenetre='${WIN:-aucune}')"
 fi
 
 # ================= Non essentiel : auto-validation de l'installateur de mise a jour =================
@@ -194,7 +188,7 @@ ash dumpsys window > "$OUT/client-screen-window-$API.txt" 2>&1 || true
 
 echo "=== Fin e2e Ecran client (API $API) : $( [ "$FAIL" = 0 ] && echo OK || echo ECHEC ) ==="
 if [ "$FAIL" = 0 ]; then
-  echo "::notice::[API $API] FS Support mode Ecran client : essentiels au vert (mode actif, accessibilite liee, et au boot la demande de capture ouvre bien la fenetre de consentement). L'auto-clic du dialogue n'est pas verifiable sur emulateur (dialogue systeme non expose a l'accessibilite) : voir les warnings."
+  echo "::notice::[API $API] FS Support mode Ecran client : essentiels au vert (mode actif, accessibilite liee, et au boot le consentement de capture est valide automatiquement : projection active)."
 else
   echo "::error::[API $API] FS Support mode Ecran client : au moins une verification essentielle a echoue"
 fi

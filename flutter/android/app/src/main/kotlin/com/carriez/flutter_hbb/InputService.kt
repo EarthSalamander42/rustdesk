@@ -95,26 +95,36 @@ class InputService : AccessibilityService() {
             "com.google.android.packageinstaller",
             "com.android.packageinstaller.permission",
         )
-        // FS Support : libellés du bouton positif de consentement de capture (FR/EN, ROM variées).
-        private val FS_CAPTURE_POSITIVE_TEXTS = listOf(
-            "démarrer maintenant", "demarrer maintenant", "commencer maintenant",
-            "start now", "démarrer", "demarrer", "commencer", "start", "autoriser", "allow",
+        // FS Support : tous les libellés ci-dessous sont en forme REPLIEE (minuscules, sans accents),
+        // comparés à fsFold(texte du nœud). Le bouton doit être cliquable (ou avoir un ancêtre
+        // cliquable) ; les libellés négatifs ci-dessous excluent explicitement « Annuler » / « Don't
+        // allow » (qui contient « allow »), etc.
+        // Identifiants connus du bouton positif (Android ≤ 13 : button1 ; SystemUI récent : autre id).
+        private val FS_BUTTON_IDS = listOf(
+            "android:id/button1",
+            "com.android.systemui:id/button_start",
         )
-        // FS Support : sélecteur Android 14+ « Tout l'écran » (choisi avant le bouton positif).
-        private val FS_CAPTURE_ENTIRE_SCREEN_TEXTS = listOf(
-            "tout l'écran", "tout l'ecran", "l'intégralité de l'écran", "l'integralite de l'ecran",
-            "entire screen", "whole screen", "full screen",
+        // Bouton positif de consentement de capture.
+        private val FS_CAPTURE_POS_TEXTS = listOf(
+            "commencer", "demarrer", "start now", "start", "autoriser", "allow",
         )
-        // FS Support : bouton d'installation / de mise à jour de l'installateur (FR/EN).
-        private val FS_INSTALL_POSITIVE_TEXTS = listOf(
-            "mettre à jour", "mettre a jour", "installer", "update", "install",
+        // Sélecteur Android 14+ « Tout l'écran » (choisi avant le bouton positif).
+        private val FS_CAPTURE_ENTIRE_TEXTS = listOf(
+            "tout l'ecran", "l'integralite de l'ecran", "entire screen", "whole screen", "full screen",
         )
-        // FS Support : bouton de fin de l'installateur. « Terminé » d'abord (ne couvre pas l'écran
-        // du client), « Ouvrir » en repli ; le redémarrage réel passe par ACTION_MY_PACKAGE_REPLACED.
-        private val FS_INSTALL_DONE_TEXTS = listOf(
-            "terminé", "termine", "fermer", "ok", "done", "close",
+        // Bouton d'installation / de mise à jour de l'installateur.
+        private val FS_INSTALL_POS_TEXTS = listOf(
+            "mettre a jour", "installer", "update", "install",
         )
+        // Bouton de fin de l'installateur. « Terminé » d'abord (ne couvre pas l'écran du client),
+        // « Ouvrir » en repli ; le redémarrage réel passe par ACTION_MY_PACKAGE_REPLACED.
+        private val FS_INSTALL_DONE_TEXTS = listOf("termine", "fermer", "ok", "done", "close")
         private val FS_INSTALL_OPEN_TEXTS = listOf("ouvrir", "open")
+        // Libellés négatifs : ne JAMAIS cliquer un bouton qui les porte (sécurité).
+        private val FS_NEG_TEXTS = listOf(
+            "annuler", "cancel", "refuser", "don't allow", "dont allow", "ne pas autoriser",
+            "deny", "plus tard", "not now", "later",
+        )
     }
 
     private fun notifyInputState() {
@@ -1149,10 +1159,10 @@ class InputService : AccessibilityService() {
         }
         fsMaybeLogWindows("capture")
         fsWithConsentRoots(FS_MEDIA_PROJECTION_PACKAGES) { root ->
-            // Le bouton positif (button1 / « Démarrer » / « Start ») n'existe que dans le dialogue de
-            // consentement de capture — pas dans la barre d'état : sa présence identifie LE dialogue.
-            val positive = fsFindByViewId(root, "android:id/button1")
-                ?: fsFindByTexts(root, FS_CAPTURE_POSITIVE_TEXTS)
+            // Le bouton positif — cherché par identifiant connu puis par texte (replié), CLIQUABLE,
+            // en excluant « Annuler »/« Don't allow » — n'existe que dans le dialogue de consentement
+            // de capture (pas dans la barre d'état) : sa présence identifie LE dialogue.
+            val positive = fsFindButton(root, FS_BUTTON_IDS, FS_CAPTURE_POS_TEXTS)
             if (positive == null) {
                 return@fsWithConsentRoots false
             }
@@ -1175,7 +1185,7 @@ class InputService : AccessibilityService() {
                 return@fsWithConsentRoots false
             }
             // Dialogue confirmé comme le nôtre : Android 14+ propose « Tout l'écran » avant le bouton.
-            fsFindByTexts(root, FS_CAPTURE_ENTIRE_SCREEN_TEXTS)?.let { entire ->
+            fsFindClickableByTexts(root, FS_CAPTURE_ENTIRE_TEXTS)?.let { entire ->
                 if (fsClickNode(entire)) {
                     Log.i(logTag, "FS Support : capture — option « Tout l'écran » choisie automatiquement")
                 }
@@ -1188,6 +1198,84 @@ class InputService : AccessibilityService() {
             }
             false
         }
+    }
+
+    // FS Support : repli accents + casse (« Démarrer » -> « demarrer »), pour comparer des libellés.
+    private fun fsFold(s: String?): String {
+        if (s.isNullOrEmpty()) return ""
+        val n = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+        val sb = StringBuilder(n.length)
+        for (c in n) {
+            if (Character.getType(c) != Character.NON_SPACING_MARK.toInt()) {
+                sb.append(c)
+            }
+        }
+        return sb.toString().lowercase()
+    }
+
+    // FS Support : texte + description du nœud, repliés et concaténés.
+    private fun fsNodeTextFold(node: AccessibilityNodeInfo): String =
+        fsFold(node.text?.toString()) + " " + fsFold(node.contentDescription?.toString())
+
+    // FS Support : liste les nœuds cliquables (id + texte), pour diagnostic de ciblage du bouton.
+    private fun fsCollectClickables(root: AccessibilityNodeInfo): String {
+        val sb = StringBuilder()
+        fsCollectClickablesInto(root, 0, sb)
+        val s = sb.toString()
+        return if (s.length > 220) s.substring(0, 220) else s
+    }
+
+    private fun fsCollectClickablesInto(node: AccessibilityNodeInfo?, depth: Int, sb: StringBuilder) {
+        if (node == null || depth > FS_MAX_NODE_DEPTH || sb.length > 220) {
+            return
+        }
+        if (node.isClickable) {
+            sb.append("{id=${node.viewIdResourceName} t='${node.text?.toString()?.take(24)}'} ")
+        }
+        for (i in 0 until node.childCount) {
+            fsCollectClickablesInto(node.getChild(i), depth + 1, sb)
+        }
+    }
+
+    private fun fsFoldContainsAny(hay: String, needles: List<String>): Boolean =
+        needles.any { hay.contains(it) }
+
+    // FS Support : le nœud, ou l'un de ses ancêtres (jusqu'à 8), est-il cliquable et actif ?
+    private fun fsClickableSelfOrAncestor(node: AccessibilityNodeInfo): Boolean {
+        var current: AccessibilityNodeInfo? = node
+        var hops = 0
+        while (current != null && hops < 8) {
+            if (current.isClickable && current.isEnabled) {
+                return true
+            }
+            current = current.parent
+            hops++
+        }
+        return false
+    }
+
+    // FS Support : bouton positif = nœud dont l'identifiant est connu OU dont le texte (replié) est un
+    // libellé positif, cliquable (soi ou ancêtre), et qui n'est PAS un libellé négatif (Annuler…).
+    private fun fsFindButton(
+        root: AccessibilityNodeInfo,
+        ids: List<String>,
+        posTexts: List<String>
+    ): AccessibilityNodeInfo? = fsFindNode(root, 0) { node ->
+        val folded = fsNodeTextFold(node)
+        if (fsFoldContainsAny(folded, FS_NEG_TEXTS)) {
+            return@fsFindNode false
+        }
+        val idMatch = node.viewIdResourceName?.let { ids.contains(it) } ?: false
+        val textMatch = fsFoldContainsAny(folded, posTexts)
+        (idMatch || textMatch) && fsClickableSelfOrAncestor(node)
+    }
+
+    // FS Support : nœud cliquable (soi ou ancêtre) dont le texte replié contient un libellé donné.
+    private fun fsFindClickableByTexts(
+        root: AccessibilityNodeInfo,
+        texts: List<String>
+    ): AccessibilityNodeInfo? = fsFindNode(root, 0) { node ->
+        fsFoldContainsAny(fsNodeTextFold(node), texts) && fsClickableSelfOrAncestor(node)
     }
 
     // FS Support : l'arbre contient-il au moins un texte lisible (texte ou description non vide) ?
@@ -1216,7 +1304,8 @@ class InputService : AccessibilityService() {
                 val title = try { w.title?.toString() } catch (e: Exception) { null }
                 val txt = if (r != null) fsCollectTexts(r) else "<racine nulle>"
                 val short = if (txt.length > 70) txt.substring(0, 70) else txt
-                sb.append("#$i type=${w.type} pkg=$pkg titre=$title racine=${r != null} btn1=${r != null && fsFindByViewId(r, "android:id/button1") != null} txt='$short'; ")
+                val clics = if (r != null) fsCollectClickables(r) else ""
+                sb.append("#$i type=${w.type} pkg=$pkg titre=$title racine=${r != null} txt='$short' clics=$clics; ")
             }
         } catch (e: Exception) {
             sb.append("err:$e")
@@ -1240,8 +1329,8 @@ class InputService : AccessibilityService() {
             // Écran de fin (après notre clic d'installation) : « Terminé » (préféré), sinon « Ouvrir ».
             // Le redémarrage du service passe par ACTION_MY_PACKAGE_REPLACED, pas par « Ouvrir ».
             if (fsInstallClicked) {
-                val done = fsFindByTexts(root, FS_INSTALL_DONE_TEXTS)
-                    ?: fsFindByTexts(root, FS_INSTALL_OPEN_TEXTS)
+                val done = fsFindClickableByTexts(root, FS_INSTALL_DONE_TEXTS)
+                    ?: fsFindClickableByTexts(root, FS_INSTALL_OPEN_TEXTS)
                 if (done != null && fsClickNode(done)) {
                     Log.i(logTag, "FS Support : fin de l'installation confirmée automatiquement")
                     fsInstallClicked = false
@@ -1250,8 +1339,7 @@ class InputService : AccessibilityService() {
                     return@fsWithConsentRoots true
                 }
             }
-            val install = fsFindByViewId(root, "android:id/button1")
-                ?: fsFindByTexts(root, FS_INSTALL_POSITIVE_TEXTS)
+            val install = fsFindButton(root, FS_BUTTON_IDS, FS_INSTALL_POS_TEXTS)
             if (install == null) {
                 return@fsWithConsentRoots false
             }
