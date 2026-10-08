@@ -1149,25 +1149,39 @@ class InputService : AccessibilityService() {
         }
         fsMaybeLogWindows("capture")
         fsWithConsentRoots(FS_MEDIA_PROJECTION_PACKAGES) { root ->
-            // Android 14+ : sélecteur « Un seul appli / Tout l'écran ». On choisit « Tout l'écran ».
-            fsFindByTexts(root, FS_CAPTURE_ENTIRE_SCREEN_TEXTS)?.let { entire ->
-                if (fsClickNode(entire)) {
-                    Log.i(logTag, "FS Support : capture — option « Tout l'écran » choisie automatiquement")
-                }
-            }
+            // Le bouton positif (button1 / « Démarrer » / « Start ») n'existe que dans le dialogue de
+            // consentement de capture — pas dans la barre d'état : sa présence identifie LE dialogue.
             val positive = fsFindByViewId(root, "android:id/button1")
                 ?: fsFindByTexts(root, FS_CAPTURE_POSITIVE_TEXTS)
             if (positive == null) {
                 return@fsWithConsentRoots false
             }
-            // Le bouton positif (button1 / « Démarrer » / « Start ») n'existe que dans le dialogue de
-            // consentement de capture — pas dans la barre d'état. On est de plus DANS notre fenêtre de
-            // temps de capture (ouverte juste après NOTRE createScreenCaptureIntent) : ce dialogue est
-            // donc le nôtre. On clique, en journalisant si le libellé « FS Support » a pu être lu
-            // (certaines ROM / l'émulateur ne l'exposent pas à l'accessibilité).
-            val mentionsApp = fsNodeTreeMentionsApp(root)
+            // Règle de sécurité (validée par Jason : auto-clic « uniquement pour FS Support ») :
+            //  (a) texte lisible ET contient « FS Support »  -> clic ;
+            //  (b) texte lisible SANS « FS Support »          -> jamais de clic (peut être une autre appli) ;
+            //  (c) aucun texte lisible du tout (ROM/émulateur) -> clic toléré, fenêtre resserrée (10 s), une fois.
+            val hasText = fsTreeHasText(root)
+            val mentionsApp = hasText && fsNodeTreeMentionsApp(root)
+            val case: String
+            val allowed: Boolean
+            when {
+                mentionsApp -> { case = "a (libelle FS Support lu)"; allowed = true }
+                hasText -> { case = "b (texte lisible sans FS Support)"; allowed = false }
+                FsClientScreen.captureTightActive() -> { case = "c (aucun texte lisible, fenetre resserree)"; allowed = true }
+                else -> { case = "c-hors-fenetre (aucun texte lisible mais fenetre resserree expiree)"; allowed = false }
+            }
+            if (!allowed) {
+                Log.i(logTag, "FS Support : capture NON validee — cas $case ; textes='${fsCollectTexts(root)}'")
+                return@fsWithConsentRoots false
+            }
+            // Dialogue confirmé comme le nôtre : Android 14+ propose « Tout l'écran » avant le bouton.
+            fsFindByTexts(root, FS_CAPTURE_ENTIRE_SCREEN_TEXTS)?.let { entire ->
+                if (fsClickNode(entire)) {
+                    Log.i(logTag, "FS Support : capture — option « Tout l'écran » choisie automatiquement")
+                }
+            }
             if (fsClickNode(positive)) {
-                Log.i(logTag, "FS Support : consentement de capture valide automatiquement (libelleApp=$mentionsApp)")
+                Log.i(logTag, "FS Support : consentement de capture valide automatiquement — cas $case")
                 FsClientScreen.clearCaptureConsentWindow()
                 fsMarkAutoClick()
                 return@fsWithConsentRoots true
@@ -1175,6 +1189,12 @@ class InputService : AccessibilityService() {
             false
         }
     }
+
+    // FS Support : l'arbre contient-il au moins un texte lisible (texte ou description non vide) ?
+    private fun fsTreeHasText(root: AccessibilityNodeInfo): Boolean =
+        fsFindNode(root, 0) {
+            !it.text?.toString().isNullOrBlank() || !it.contentDescription?.toString().isNullOrBlank()
+        } != null
 
     // FS Support : énumère les fenêtres (paquet, titre, racine lisible, textes) pour diagnostic.
     // Débit limité (toutes les ~4 s). Permet de comprendre, sur émulateur, si le dialogue de
@@ -1207,8 +1227,8 @@ class InputService : AccessibilityService() {
     }
 
     // FS Support : validation automatique de l'installateur pour la propre mise à jour de l'appli.
-    // Ne clique QUE si la fenêtre mentionne « FS Support ». Clique « Installer »/« Mettre à jour »,
-    // puis « Terminé »/« Ouvrir » à la fin. Journalise chaque clic.
+    // Même règle de sécurité que la capture (cas a/b/c, voir fsAutoConfirmCapture) : on ne valide que
+    // pour FS Support. Clique « Installer »/« Mettre à jour », puis « Terminé »/« Ouvrir » à la fin.
     private fun fsAutoConfirmInstall() {
         if (!FsClientScreen.installConsentActive()) {
             return
@@ -1217,19 +1237,8 @@ class InputService : AccessibilityService() {
             return
         }
         fsWithConsentRoots(FS_PACKAGE_INSTALLER_PACKAGES) { root ->
-            if (!fsNodeTreeMentionsApp(root)) {
-                return@fsWithConsentRoots false
-            }
-            val install = fsFindByViewId(root, "android:id/button1")
-                ?: fsFindByTexts(root, FS_INSTALL_POSITIVE_TEXTS)
-            if (install != null && fsClickNode(install)) {
-                Log.i(logTag, "FS Support : installation de la mise à jour validée automatiquement")
-                fsInstallClicked = true
-                fsMarkAutoClick()
-                return@fsWithConsentRoots true
-            }
-            // Écran de fin : « Terminé » (préféré), sinon « Ouvrir ». Le redémarrage du service
-            // passe par ACTION_MY_PACKAGE_REPLACED, pas par « Ouvrir ».
+            // Écran de fin (après notre clic d'installation) : « Terminé » (préféré), sinon « Ouvrir ».
+            // Le redémarrage du service passe par ACTION_MY_PACKAGE_REPLACED, pas par « Ouvrir ».
             if (fsInstallClicked) {
                 val done = fsFindByTexts(root, FS_INSTALL_DONE_TEXTS)
                     ?: fsFindByTexts(root, FS_INSTALL_OPEN_TEXTS)
@@ -1240,6 +1249,31 @@ class InputService : AccessibilityService() {
                     fsMarkAutoClick()
                     return@fsWithConsentRoots true
                 }
+            }
+            val install = fsFindByViewId(root, "android:id/button1")
+                ?: fsFindByTexts(root, FS_INSTALL_POSITIVE_TEXTS)
+            if (install == null) {
+                return@fsWithConsentRoots false
+            }
+            val hasText = fsTreeHasText(root)
+            val mentionsApp = hasText && fsNodeTreeMentionsApp(root)
+            val case: String
+            val allowed: Boolean
+            when {
+                mentionsApp -> { case = "a (libelle FS Support lu)"; allowed = true }
+                hasText -> { case = "b (texte lisible sans FS Support)"; allowed = false }
+                FsClientScreen.installTightActive() -> { case = "c (aucun texte lisible, fenetre resserree)"; allowed = true }
+                else -> { case = "c-hors-fenetre"; allowed = false }
+            }
+            if (!allowed) {
+                Log.i(logTag, "FS Support : installation NON validee — cas $case ; textes='${fsCollectTexts(root)}'")
+                return@fsWithConsentRoots false
+            }
+            if (fsClickNode(install)) {
+                Log.i(logTag, "FS Support : installation de la mise à jour validee automatiquement — cas $case")
+                fsInstallClicked = true
+                fsMarkAutoClick()
+                return@fsWithConsentRoots true
             }
             false
         }

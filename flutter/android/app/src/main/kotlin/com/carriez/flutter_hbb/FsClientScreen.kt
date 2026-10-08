@@ -38,11 +38,22 @@ object FsClientScreen {
     // de la propre mise a jour (voir FsSelfUpdate). L'installateur peut tarder a s'ouvrir.
     private const val INSTALL_WINDOW_MS = 90_000L
 
+    // Fenetres RESSERREES : clic tolere en l'absence totale de texte lisible (cas (c) : certaines
+    // ROM / emulateurs n'exposent pas le libelle a l'accessibilite). Bien plus court, une seule fois.
+    private const val CAPTURE_TIGHT_MS = 10_000L
+    private const val INSTALL_TIGHT_MS = 15_000L
+
     @Volatile
     private var captureConsentUntil = 0L
 
     @Volatile
+    private var captureTightUntil = 0L
+
+    @Volatile
     private var installConsentUntil = 0L
+
+    @Volatile
+    private var installTightUntil = 0L
 
     /** Le mode « Ecran client » est-il actif sur cet appareil ? */
     fun isEnabled(context: Context): Boolean {
@@ -71,24 +82,34 @@ object FsClientScreen {
 
     /** Ouvre la fenetre d'auto-validation de la capture (a appeler juste avant la fenetre systeme). */
     fun markCaptureConsentWindow() {
-        captureConsentUntil = System.currentTimeMillis() + CAPTURE_WINDOW_MS
+        val now = System.currentTimeMillis()
+        captureConsentUntil = now + CAPTURE_WINDOW_MS
+        captureTightUntil = now + CAPTURE_TIGHT_MS
     }
 
     /** Ouvre la fenetre d'auto-validation de l'installateur (a appeler juste avant son lancement). */
     fun markInstallConsentWindow() {
-        installConsentUntil = System.currentTimeMillis() + INSTALL_WINDOW_MS
+        val now = System.currentTimeMillis()
+        installConsentUntil = now + INSTALL_WINDOW_MS
+        installTightUntil = now + INSTALL_TIGHT_MS
     }
 
     fun captureConsentActive(): Boolean = System.currentTimeMillis() < captureConsentUntil
     fun installConsentActive(): Boolean = System.currentTimeMillis() < installConsentUntil
 
+    /** Fenetre resserree : clic tolere sans texte lisible (cas (c)). */
+    fun captureTightActive(): Boolean = System.currentTimeMillis() < captureTightUntil
+    fun installTightActive(): Boolean = System.currentTimeMillis() < installTightUntil
+
     /** Referme la fenetre capture (apres une validation reussie, pour ne pas recliquer). */
     fun clearCaptureConsentWindow() {
         captureConsentUntil = 0L
+        captureTightUntil = 0L
     }
 
     /** Referme la fenetre installation (apres avoir clique « Terminé »/« Ouvrir »). */
     fun clearInstallConsentWindow() {
         installConsentUntil = 0L
+        installTightUntil = 0L
     }
 }

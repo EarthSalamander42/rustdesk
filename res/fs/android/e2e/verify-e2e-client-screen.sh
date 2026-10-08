@@ -146,7 +146,7 @@ fi
 if [ "$CAPOK" = 1 ]; then
   notice "Consentement de capture validé automatiquement : projection active pour $PKG"
   if [ -n "$AUTOLOG" ]; then
-    notice "Journal : clic automatique du consentement confirmé"
+    notice "Journal : ${AUTOLOG##*FS Support : }"
   fi
   if [ -n "$WIN" ]; then
     warn "Une fenetre MediaProjectionPermission subsiste apres validation : '$WIN'"
