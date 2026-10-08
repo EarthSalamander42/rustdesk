@@ -472,7 +472,17 @@ class AndroidChannel {
   static final kPickImportDirectory = "pick_import_directory";
   static final kImportDirectory = "import_directory";
   static final kExportFiles = "export_files";
+  // FS Support acces direct
+  static final kFsProjectMediaAllowed = "fs_project_media_allowed";
+  static final kFsReactivateAccessibility = "fs_reactivate_accessibility";
 }
+
+// FS Support : option locale forcant les clics par noeuds d'accessibilite (lue cote Kotlin
+// par FFI.getLocalOption, voir KEY_FS_FORCE_ACCESSIBILITY_CLICKS dans common.kt).
+const String kOptionFsForceAccessibilityClicks = "fs-force-accessibility-clicks";
+
+// FS Support : interrupteur maitre « Acces direct » (etat du reglage, cote client).
+const String kOptionFsDirectAccess = "fs-direct-access";
 
 /// flutter/packages/flutter/lib/src/services/keyboard_key.dart -> _keyLabels
 /// see [LogicalKeyboardKey.keyLabel]

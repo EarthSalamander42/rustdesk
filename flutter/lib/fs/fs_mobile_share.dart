@@ -13,6 +13,7 @@ import '../consts.dart';
 import '../mobile/pages/server_page.dart' show ConnectionManager, showScamWarning;
 import '../models/platform_model.dart';
 import '../models/server_model.dart';
+import 'fs_direct_access.dart';
 
 /// Active l'écran de partage de l'Atelier sur Android.
 const bool kFsAtelierMobile = true;
@@ -120,6 +121,8 @@ class _FsMobileShareState extends State<FsMobileShare> {
           },
           permissions: perms,
           connections: const ConnectionManager(),
+          // FS Support : reglage « Acces direct » (prise en main sans personne devant l'ecran).
+          footer: isAndroid ? FsDirectAccessSection(serverModel: m) : null,
         ),
       ),
     );

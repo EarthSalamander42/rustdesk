@@ -38,6 +38,7 @@ import kotlin.math.max
 import hbb.MessageOuterClass.KeyEvent
 import hbb.MessageOuterClass.KeyboardMode
 import hbb.KeyEventConverter
+import ffi.FFI
 
 // const val BUTTON_UP = 2
 // const val BUTTON_BACK = 0x08
@@ -455,8 +456,29 @@ class InputService : AccessibilityService() {
     // FS Support : envoie le geste en écoutant son résultat. Un refus (retour false ou onCancelled)
     // est compté ; à partir du seuil, l'action est rejouée par les nœuds d'accessibilité.
     // Un geste qui aboutit remet le compteur à zéro : rien ne change là où les gestes marchent.
+    // FS Support : option « Clics compatibles ecrans interactifs ». Lue au vol via le pont Rust
+    // (meme mecanisme que MainActivity.FFI.getLocalOption). Toute erreur = desactive.
+    private fun fsForceAccessibilityClicks(): Boolean {
+        return try {
+            FFI.getLocalOption(KEY_FS_FORCE_ACCESSIBILITY_CLICKS) == "Y"
+        } catch (e: Exception) {
+            Log.w(logTag, "FS Support : lecture de l'option clics forces impossible : $e")
+            false
+        }
+    }
+
     @RequiresApi(Build.VERSION_CODES.N)
     private fun fsDispatchGesture(gesture: GestureDescription, isNew: Boolean, fallback: (() -> Unit)?) {
+        // FS Support : mode force -> on NE tente PAS dispatchGesture, tout passe par les noeuds.
+        // Les gestes intermediaires (continuation, fallback null) sont simplement ignores ;
+        // seul l'evenement terminal porte un fallback et rejoue l'action complete.
+        if (fsForceAccessibilityClicks()) {
+            if (fallback != null) {
+                Log.i(logTag, "FS Support : mode clics compatibles ecrans interactifs — action rejouee par noeuds d'accessibilite")
+                fsRunFallback(fallback)
+            }
+            return
+        }
         val seq = fsGestureSeq.incrementAndGet()
         if (isNew) {
             fsLastNewGestureSeq.accumulateAndGet(seq) { a, b -> max(a, b) }

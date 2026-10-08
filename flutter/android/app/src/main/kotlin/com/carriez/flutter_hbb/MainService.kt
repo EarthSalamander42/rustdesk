@@ -264,6 +264,9 @@ class MainService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(logTag,"MainService onCreate, sdk int:${Build.VERSION.SDK_INT} reuseVirtualDisplay:$reuseVirtualDisplay")
+        // FS Support acces direct : au demarrage du service, reactiver seul le service
+        // d'accessibilite si l'appareil est prepare (WRITE_SECURE_SETTINGS). No-op sinon.
+        FsDirectAccess.reactivateAccessibilityIfPossible(this)
         FFI.init(this)
         HandlerThread("Service", Process.THREAD_PRIORITY_BACKGROUND).apply {
             start()

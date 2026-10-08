@@ -107,6 +107,19 @@ jobs:
           # Linux n'est plus distribué (06/10/2026) : ni .deb ni AppImage (l'ancienne AppImage était republiée sous le nouveau nom).
           copy_first "fs-support-${VERSION}-android-universal.apk" "rustdesk-${VERSION}-*universal*.apk"
 
+          # FS Support acces direct : scripts de preparation ADB, publies depuis la source (pas la release
+          # du build). Noms prefixes « fs-support- » : la boucle de suppression ci-dessous les remplace proprement.
+          if [[ -f res/fs/android/acces-direct.sh ]]; then
+            cp res/fs/android/acces-direct.sh "$OUT_DIR/fs-support-android-acces-direct.sh"
+          else
+            echo "res/fs/android/acces-direct.sh introuvable" >&2
+          fi
+          if [[ -f res/fs/android/acces-direct.ps1 ]]; then
+            cp res/fs/android/acces-direct.ps1 "$OUT_DIR/fs-support-android-acces-direct.ps1"
+          else
+            echo "res/fs/android/acces-direct.ps1 introuvable" >&2
+          fi
+
           tar --exclude-vcs --exclude="$WORK_DIR" -czf "$OUT_DIR/fs-support-${VERSION}-source.tar.gz" .
 
           RELEASE_ID="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.id')"

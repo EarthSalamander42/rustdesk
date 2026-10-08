@@ -334,6 +334,14 @@ class MainActivity : FlutterActivity() {
                     )
                     result.success(true)
                 }
+                "fs_project_media_allowed" -> {
+                    // FS Support acces direct : la capture peut-elle demarrer sans fenetre ?
+                    result.success(FsDirectAccess.isProjectMediaAllowed(context))
+                }
+                "fs_reactivate_accessibility" -> {
+                    // FS Support acces direct : tentative de reactivation via WRITE_SECURE_SETTINGS.
+                    result.success(FsDirectAccess.reactivateAccessibilityIfPossible(context))
+                }
                 "stop_input" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                         InputService.ctx?.disableSelf()

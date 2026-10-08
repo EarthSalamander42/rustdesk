@@ -32,6 +32,11 @@ on:
       fs-only:
         type: string
         default: ""
+      # FS Support : publie en plus l'APK universel comme artefact de run (actions/upload-artifact),
+      # pour qu'un workflow appelant (ex. l'e2e Android) le recupere SANS le publier dans une release.
+      fs-apk-artifact:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       upload-artifact:
@@ -65,6 +70,10 @@ on:
         description: "Une seule plateforme : windows, macos, android (vide = toutes)"
         type: string
         default: ""
+      fs-apk-artifact:
+        description: "Publier l'APK universel comme artefact de run (sans release)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -1459,7 +1468,8 @@ jobs:
   build-rustdesk-android-universal:
     needs: [build-rustdesk-android]
     name: build rustdesk android universal apk
-    if: ${{ (inputs.build-scope == 'all' || inputs.build-scope == 'fs-support') && (inputs.fs-only == '' || inputs.fs-only == 'android') && inputs.upload-artifact }}
+    # FS Support : le job tourne aussi quand fs-apk-artifact est demande (e2e), meme sans release.
+    if: ${{ (inputs.build-scope == 'all' || inputs.build-scope == 'fs-support') && (inputs.fs-only == '' || inputs.fs-only == 'android') && (inputs.upload-artifact || inputs.fs-apk-artifact) }}
     runs-on: ubuntu-24.04
     env:
       reltype: release
@@ -1698,6 +1708,16 @@ jobs:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
           files: signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
+
+      # FS Support : APK universel en artefact de run (recupere par l'e2e Android), jamais dans une release.
+      - name: Upload FS Support APK artifact
+        if: ${{ inputs.build-scope == 'fs-support' && inputs.fs-apk-artifact }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fs-support-apk
+          path: signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
+          if-no-files-found: error
+          retention-days: 3
 
   build-rustdesk-linux:
     # FS Support ne distribue pas Linux (décision du 06/10/2026) : construit seulement en portée « all ».

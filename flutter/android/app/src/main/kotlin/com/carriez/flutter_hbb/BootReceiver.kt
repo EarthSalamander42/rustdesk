@@ -20,6 +20,11 @@ class BootReceiver : BroadcastReceiver() {
         Log.d(logTag, "onReceive ${intent.action}")
 
         if (Intent.ACTION_BOOT_COMPLETED == intent.action || DEBUG_BOOT_COMPLETED == intent.action) {
+            // FS Support acces direct : au boot, si l'appareil a ete prepare (WRITE_SECURE_SETTINGS),
+            // on reactive seul le service d'accessibilite sans ecraser les autres. Sans cette
+            // permission (appareil grand public), l'appel est un no-op silencieux.
+            FsDirectAccess.reactivateAccessibilityIfPossible(context)
+
             // check SharedPreferences config
             val prefs = context.getSharedPreferences(KEY_SHARED_PREFERENCES, FlutterActivity.MODE_PRIVATE)
             if (!prefs.getBoolean(KEY_START_ON_BOOT_OPT, false)) {
