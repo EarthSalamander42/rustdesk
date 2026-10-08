@@ -99,19 +99,27 @@ else
   essential_fail "Service d'accessibilite non lie apres activation"
 fi
 
-# ---- Verification : AUCUN appops pose (on est bien dans le cas « client sans ADB ») ----
+# ---- PROJECT_MEDIA reste NON pose : c'est LE point du cas « client sans ADB ». La capture doit
+#      donc ouvrir une fenetre de consentement, que le service d'accessibilite validera seul. ----
 PM="$(ash appops get "$PKG" PROJECT_MEDIA)"
 case "$PM" in
-  *allow*) warn "PROJECT_MEDIA deja allow : le cas « sans appops » n'est pas represente" ;;
-  *) notice "PROJECT_MEDIA non pose (cas client sans ADB confirme)" ;;
+  *allow*) warn "PROJECT_MEDIA deja allow : le cas « sans pre-autorisation de capture » n'est pas represente" ;;
+  *) notice "PROJECT_MEDIA non pose (pas de pre-autorisation de capture : cas client sans ADB)" ;;
 esac
+
+# Superposition (SYSTEM_ALERT_WINDOW) : etape que la personne coche dans l'assistant sur place.
+# On l'emule ici (l'emulateur ne peut pas toucher l'ecran) car Android la demande pour qu'un service
+# demarre au boot puisse ouvrir une activite (regle de lancement d'activite en arriere-plan) : sans
+# elle, la fenetre de consentement de capture ne peut pas apparaitre. PROJECT_MEDIA, lui, reste NON pose.
+ash appops set "$PKG" SYSTEM_ALERT_WINDOW allow >/dev/null 2>&1 || true
 
 adb exec-out screencap -p > "$OUT/client-screen-avant-$API.png" 2>/dev/null || true
 
-# ---- Simulation du boot : le service demande la capture, la fenetre de consentement est auto-validee ----
+# ---- Simulation du boot : le service demande la capture, la fenetre de consentement est auto-validee.
+#      PAS de « am force-stop » : un paquet « stoppe » ne recoit pas le broadcast de boot (le service
+#      ne demarrerait jamais). Le processus est vivant (service d'accessibilite lie), donc le receiver
+#      manifeste BootReceiver recoit bien l'action de boot simulee. ----
 ash dumpsys deviceidle whitelist "+$PKG" >/dev/null 2>&1 || true
-adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
-sleep 1
 adb logcat -c >/dev/null 2>&1 || true
 adb shell am broadcast -a "$BOOT_ACTION" -p "$PKG" >/dev/null 2>&1
 
@@ -122,6 +130,8 @@ while [ "$i" -lt 30 ]; do
   case "$MP" in
     *"$PKG"*) CAPOK=1; break ;;
   esac
+  # Relance du boot a mi-parcours (robustesse : premiere diffusion parfois avant la fin de la liaison).
+  [ "$i" = 8 ] && adb shell am broadcast -a "$BOOT_ACTION" -p "$PKG" >/dev/null 2>&1
   i=$((i + 1)); sleep 2
 done
 ash dumpsys media_projection > "$OUT/client-screen-media_projection-$API.txt" 2>&1 || true

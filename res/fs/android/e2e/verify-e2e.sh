@@ -147,8 +147,10 @@ XML
 
 if prepare_start_on_boot; then
   adb shell dumpsys deviceidle whitelist "+$PKG" >/dev/null 2>&1 || true
-  adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
-  sleep 1
+  # PAS de « am force-stop » : un paquet « stoppe » ne recoit pas le broadcast de boot (le service ne
+  # demarrerait jamais, projection=0 fenetre=aucune). Le processus est vivant (accessibilite liee),
+  # donc BootReceiver recoit bien l'action de boot simulee et demarre la capture.
+  adb logcat -c >/dev/null 2>&1 || true
   adb shell am broadcast -a "$BOOT_ACTION" -p "$PKG" >/dev/null 2>&1
   CAPOK=0
   i=0
@@ -157,6 +159,7 @@ if prepare_start_on_boot; then
     case "$MP" in
       *"$PKG"*) CAPOK=1; break ;;
     esac
+    [ "$i" = 6 ] && adb shell am broadcast -a "$BOOT_ACTION" -p "$PKG" >/dev/null 2>&1
     i=$((i + 1)); sleep 2
   done
   WIN="$(ash dumpsys window | grep -i MediaProjectionPermission | head -n 1)"
