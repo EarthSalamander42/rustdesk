@@ -20,6 +20,18 @@ on:
       fs-version:
         type: string
         default: ""
+      # FS Support : architectures macOS construites (défaut : les deux ; le build de test rapide choisit).
+      macos-x64:
+        type: boolean
+        default: true
+      macos-arm64:
+        type: boolean
+        default: true
+      # FS Support : une seule plateforme (« windows », « macos » ou « android ») ; vide = toutes
+      # celles de la portée. Sert au build de test rapide (fs-support-test.yml).
+      fs-only:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       upload-artifact:
@@ -39,6 +51,18 @@ on:
           - "windows-all"
       fs-version:
         description: "Version FS Support (ex. 1.0.104) ; vide = FS_SUPPORT_BASE_VERSION"
+        type: string
+        default: ""
+      macos-x64:
+        description: "macOS Intel"
+        type: boolean
+        default: true
+      macos-arm64:
+        description: "macOS Apple Silicon"
+        type: boolean
+        default: true
+      fs-only:
+        description: "Une seule plateforme : windows, macos, android (vide = toutes)"
         type: string
         default: ""
 
@@ -70,7 +94,8 @@ env:
   # for arm64 linux because official Dart SDK does not work
   FLUTTER_ELINUX_VERSION: "3.16.9"
   TAG_NAME: "${{ inputs.upload-tag }}"
-  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  # FS Support : cache binaire vcpkg en fichiers (voir l'étape « Cache vcpkg binaries »).
+  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-bin,readwrite"
   # vcpkg version: 2026.07.29
   # If we change the `VCPKG COMMIT_ID`, please remember:
   # 1. Call `$VCPKG_ROOT/vcpkg x-update-baseline` to update the baseline in `vcpkg.json`.
@@ -134,7 +159,7 @@ jobs:
     uses: ./.github/workflows/bridge.yml
 
   build-RustDeskTempTopMostWindow:
-    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop' || inputs.build-scope == 'windows-x64' || inputs.build-scope == 'windows-all' }}
+    if: ${{ (inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop' || inputs.build-scope == 'windows-x64' || inputs.build-scope == 'windows-all') && (inputs.fs-only == '' || inputs.fs-only == 'windows') }}
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     strategy:
       fail-fast: false
@@ -149,7 +174,7 @@ jobs:
       target_version: Windows10
 
   build-for-windows-flutter:
-    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop' || inputs.build-scope == 'windows-x64' || inputs.build-scope == 'windows-all' }}
+    if: ${{ (inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop' || inputs.build-scope == 'windows-x64' || inputs.build-scope == 'windows-all') && (inputs.fs-only == '' || inputs.fs-only == 'windows') }}
     name: ${{ matrix.job.target }}
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
     runs-on: ${{ matrix.job.os }}
@@ -279,6 +304,18 @@ jobs:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
+
+      - name: Cache vcpkg binaries (FS Support)
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-bin
+          key: vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-
+
+      - name: Prepare vcpkg binary cache directory (FS Support)
+        shell: bash
+        run: mkdir -p .vcpkg-bin
 
       - name: Install vcpkg dependencies
         env:
@@ -552,6 +589,18 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
+      - name: Cache vcpkg binaries (FS Support)
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-bin
+          key: vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-
+
+      - name: Prepare vcpkg binary cache directory (FS Support)
+        shell: bash
+        run: mkdir -p .vcpkg-bin
+
       - name: Install vcpkg dependencies
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
@@ -699,6 +748,18 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
+      - name: Cache vcpkg binaries (FS Support)
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-bin
+          key: vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-
+
+      - name: Prepare vcpkg binary cache directory (FS Support)
+        shell: bash
+        run: mkdir -p .vcpkg-bin
+
       - name: Install vcpkg dependencies
         run: |
           if ! $VCPKG_ROOT/vcpkg \
@@ -772,29 +833,16 @@ jobs:
 
 
   build-for-macOS:
-    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop' }}
+    if: ${{ (inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' || inputs.build-scope == 'fs-support-desktop') && (inputs.fs-only == '' || inputs.fs-only == 'macos') && (inputs.macos-x64 || inputs.macos-arm64) }}
     name: ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
     needs: [generate-bridge]
     strategy:
       fail-fast: false
       matrix:
-        job:
-          - {
-              target: x86_64-apple-darwin,
-              os: macos-15-intel, #macos-latest or macos-14 use M1 now, https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#:~:text=14%20GB-,macos%2Dlatest%20or%20macos%2D14,-The%20macos%2Dlatestlabel
-              extra-build-args: "",
-              arch: x86_64,
-              vcpkg-triplet: x64-osx,
-            }
-          - {
-              target: aarch64-apple-darwin,
-              os: macos-14,
-              # extra-build-args: "--disable-flutter-texture-render", # disable this for mac, because we see a lot of users reporting flickering both on arm and x64, and we can not confirm if texture rendering has better performance if htere is no vram, https://github.com/rustdesk/rustdesk/issues/6296
-              extra-build-args: "--screencapturekit",
-              arch: aarch64,
-              vcpkg-triplet: arm64-osx,
-            }
+        # FS Support : Intel (macos-15-intel) et/ou Apple Silicon (macos-14) selon macos-x64 / macos-arm64.
+        # Apple Silicon : --screencapturekit (le rendu texture reste désactivé, cf. rustdesk#6296).
+        job: ${{ fromJSON(format('[{0}{1}{2}]', inputs.macos-x64 && '{"target":"x86_64-apple-darwin","os":"macos-15-intel","extra-build-args":"","arch":"x86_64","vcpkg-triplet":"x64-osx"}' || '', (inputs.macos-x64 && inputs.macos-arm64) && ',' || '', inputs.macos-arm64 && '{"target":"aarch64-apple-darwin","os":"macos-14","extra-build-args":"--screencapturekit","arch":"aarch64","vcpkg-triplet":"arm64-osx"}' || '')) }}
     steps:
       - name: Export GitHub Actions cache environment variables
         uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
@@ -911,6 +959,18 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
+      - name: Cache vcpkg binaries (FS Support)
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-bin
+          key: vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-
+
+      - name: Prepare vcpkg binary cache directory (FS Support)
+        shell: bash
+        run: mkdir -p .vcpkg-bin
+
       - name: Install vcpkg dependencies
         run: |
           if ! $VCPKG_ROOT/vcpkg \
@@ -971,6 +1031,14 @@ jobs:
           CREATE_DMG="$(command -v create-dmg)"
           CREATE_DMG="$(readlink -f "$CREATE_DMG")"
           sed -i -e 's/MAXIMUM_UNMOUNTING_ATTEMPTS=3/MAXIMUM_UNMOUNTING_ATTEMPTS=7/' "$CREATE_DMG"
+          # FS Support : sans certificat Apple, l'app (modifiée après la signature ad hoc de la compilation :
+          # binaires ajoutés, nom FS) avait une signature incohérente → macOS la disait « endommagée »,
+          # même après xattr -cr. Re-signature ad hoc de tout le paquet, vérifiée avant le .dmg.
+          if [ -z "${MACOS_P12_BASE64:-}" ]; then
+            APP="./flutter/build/macos/Build/Products/Release/${{ env.FS_SUPPORT_APP_NAME }}.app"
+            codesign --force --deep --sign - "$APP"
+            codesign --verify --deep --strict --verbose=2 "$APP"
+          fi
           create-dmg --icon "${{ env.FS_SUPPORT_APP_NAME }}.app" 200 190 --hide-extension "${{ env.FS_SUPPORT_APP_NAME }}.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg "./flutter/build/macos/Build/Products/Release/${{ env.FS_SUPPORT_APP_NAME }}.app"
 
       - name: Upload unsigned macOS app
@@ -1080,7 +1148,7 @@ jobs:
           files: rustdesk-${{ env.VERSION }}-unsigned.tar.gz
 
   build-rustdesk-android:
-    if: ${{ inputs.build-scope == 'all' || inputs.build-scope == 'fs-support' }}
+    if: ${{ (inputs.build-scope == 'all' || inputs.build-scope == 'fs-support') && (inputs.fs-only == '' || inputs.fs-only == 'android') }}
     needs: [generate-bridge]
     name: build rustdesk android apk ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
@@ -1192,6 +1260,18 @@ jobs:
           vcpkgDirectory: /opt/artifacts/vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
+
+      - name: Cache vcpkg binaries (FS Support)
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-bin
+          key: vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-
+
+      - name: Prepare vcpkg binary cache directory (FS Support)
+        shell: bash
+        run: mkdir -p .vcpkg-bin
 
       - name: Install vcpkg dependencies
         run: |
@@ -1379,7 +1459,7 @@ jobs:
   build-rustdesk-android-universal:
     needs: [build-rustdesk-android]
     name: build rustdesk android universal apk
-    if: ${{ (inputs.build-scope == 'all' || inputs.build-scope == 'fs-support') && inputs.upload-artifact }}
+    if: ${{ (inputs.build-scope == 'all' || inputs.build-scope == 'fs-support') && (inputs.fs-only == '' || inputs.fs-only == 'android') && inputs.upload-artifact }}
     runs-on: ubuntu-24.04
     env:
       reltype: release
@@ -1722,6 +1802,18 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
+      - name: Cache vcpkg binaries (FS Support)
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-bin
+          key: vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-
+
+      - name: Prepare vcpkg binary cache directory (FS Support)
+        shell: bash
+        run: mkdir -p .vcpkg-bin
+
       - name: Install vcpkg dependencies
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
         run: |
@@ -2037,6 +2129,18 @@ jobs:
           vcpkgDirectory: /opt/artifacts/vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
+
+      - name: Cache vcpkg binaries (FS Support)
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-bin
+          key: vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-bin-${{ github.job }}-${{ matrix.job.target }}-${{ env.VCPKG_COMMIT_ID }}-
+
+      - name: Prepare vcpkg binary cache directory (FS Support)
+        shell: bash
+        run: mkdir -p .vcpkg-bin
 
       - name: Install vcpkg dependencies
         run: |
