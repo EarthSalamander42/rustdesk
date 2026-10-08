@@ -1,7 +1,8 @@
+<!-- FS Support : flagRetrieveInteractiveWindows donne accès à toutes les fenêtres (mode de secours des clics) -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowsChanged"
     android:canRetrieveWindowContent="true"
-    android:accessibilityFlags="flagDefault"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
     android:notificationTimeout="50"
     android:description="@string/accessibility_service_description"
     android:canPerformGestures="true"/>

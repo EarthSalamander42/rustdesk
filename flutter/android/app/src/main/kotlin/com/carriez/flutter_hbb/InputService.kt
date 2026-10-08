@@ -13,12 +13,14 @@ import android.graphics.Path
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.util.Log
 import android.widget.EditText
 import android.view.accessibility.AccessibilityEvent
 import android.view.ViewGroup.LayoutParams
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.view.KeyEvent as KeyEventAndroid
 import android.view.ViewConfiguration
 import android.graphics.Rect
@@ -29,6 +31,7 @@ import android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTER
 import android.view.inputmethod.EditorInfo
 import androidx.annotation.RequiresApi
 import java.util.*
+import java.util.concurrent.atomic.AtomicInteger
 import java.lang.Character
 import kotlin.math.abs
 import kotlin.math.max
@@ -67,6 +70,13 @@ class InputService : AccessibilityService() {
         var ctx: InputService? = null
         val isOpen: Boolean
             get() = ctx != null
+
+        // FS Support : refus consécutifs de gestes avant de passer au mode de secours
+        private const val FS_GESTURE_REFUSAL_THRESHOLD = 2
+        // FS Support : écart minimal entre deux défilements de secours à la molette (une action = une page)
+        private const val FS_WHEEL_FALLBACK_INTERVAL = 350L
+        // FS Support : profondeur maximale explorée dans l'arbre des nœuds
+        private const val FS_MAX_NODE_DEPTH = 64
     }
 
     private fun notifyInputState() {
@@ -91,7 +101,8 @@ class InputService : AccessibilityService() {
     // 100(tap timeout) + 400(long press timeout)
     private val longPressDuration = ViewConfiguration.getTapTimeout().toLong() + ViewConfiguration.getLongPressTimeout().toLong()
 
-    private val wheelActionsQueue = LinkedList<GestureDescription>()
+    // FS Support : chaque cran de molette garde son action de secours
+    private val wheelActionsQueue = LinkedList<Pair<GestureDescription, () -> Unit>>()
     private var isWheelActionsPolling = false
     private var isWaitingLongPress = false
 
@@ -99,6 +110,26 @@ class InputService : AccessibilityService() {
 
     private var lastX = 0
     private var lastY = 0
+
+    // FS Support : mode de secours pour les ROM qui refusent dispatchGesture (boîtiers TV, Amlogic...).
+    // Refus consécutifs, remis à zéro dès qu'un geste aboutit.
+    private val fsGestureRefusals = AtomicInteger(0)
+    // FS Support : numéro du dernier geste envoyé, et du dernier geste neuf (hors continuation)
+    private val fsGestureSeq = AtomicInteger(0)
+    private val fsLastNewGestureSeq = AtomicInteger(0)
+    // FS Support : début de l'appui en cours, pour le rejouer en clic, appui long ou défilement
+    private var fsStartX = 0
+    private var fsStartY = 0
+    private var fsStartTime = 0L
+    private var fsMoved = false
+    // FS Support : dernier défilement de secours à la molette (anti-rafale)
+    private var fsLastWheelFallbackTime = 0L
+    private var fsLastWheelForward = false
+    // FS Support : fil dédié aux actions de secours (une requête de nœuds peut bloquer plusieurs secondes)
+    private var fsFallbackThread: HandlerThread? = null
+    @Volatile private var fsFallbackHandler: Handler? = null
+    // FS Support : seuil de glissement en pixels d'écran, 8 dp comme ViewConfiguration
+    private val fsTouchSlop: Int by lazy { max(8, (8 * resources.displayMetrics.density).toInt()) }
 
     private val volumeController: VolumeController by lazy { VolumeController(applicationContext.getSystemService(AUDIO_SERVICE) as AudioManager) }
 
@@ -119,6 +150,10 @@ class InputService : AccessibilityService() {
                     isWaitingLongPress = false
                 }
             }
+            // FS Support : au-delà du seuil, l'appui devient un glissement (rejoué en défilement, jamais en clic)
+            if (leftIsDown && !fsMoved && abs(mouseX - fsStartX) + abs(mouseY - fsStartY) > fsTouchSlop) {
+                fsMoved = true
+            }
         }
 
         // left button down, was up
@@ -134,6 +169,11 @@ class InputService : AccessibilityService() {
             }, longPressDuration)
 
             leftIsDown = true
+            // FS Support : début de l'appui, à rejouer si l'appareil refuse les gestes
+            fsStartX = mouseX
+            fsStartY = mouseY
+            fsStartTime = System.currentTimeMillis()
+            fsMoved = false
             startGesture(mouseX, mouseY)
             return
         }
@@ -148,7 +188,7 @@ class InputService : AccessibilityService() {
             if (leftIsDown) {
                 leftIsDown = false
                 isWaitingLongPress = false
-                endGesture(mouseX, mouseY)
+                endGesture(mouseX, mouseY, fsPointerUpFallback(mouseX, mouseY))
                 return
             }
         }
@@ -198,7 +238,11 @@ class InputService : AccessibilityService() {
             )
             val builder = GestureDescription.Builder()
             builder.addStroke(stroke)
-            wheelActionsQueue.offer(builder.build())
+            // FS Support : même déplacement du doigt (vers le haut) pour le défilement de secours
+            val wheelX = mouseX
+            val wheelY = mouseY
+            val fallback: () -> Unit = { fsFallbackWheel(wheelX, wheelY, -WHEEL_STEP) }
+            wheelActionsQueue.offer(Pair(builder.build(), fallback))
             consumeWheelActions()
 
         }
@@ -217,7 +261,11 @@ class InputService : AccessibilityService() {
             )
             val builder = GestureDescription.Builder()
             builder.addStroke(stroke)
-            wheelActionsQueue.offer(builder.build())
+            // FS Support : même déplacement du doigt (vers le bas) pour le défilement de secours
+            val wheelX = mouseX
+            val wheelY = mouseY
+            val fallback: () -> Unit = { fsFallbackWheel(wheelX, wheelY, WHEEL_STEP) }
+            wheelActionsQueue.offer(Pair(builder.build(), fallback))
             consumeWheelActions()
         }
     }
@@ -235,10 +283,18 @@ class InputService : AccessibilityService() {
             TOUCH_PAN_START -> {
                 mouseX = max(0, _x) * SCREEN_INFO.scale
                 mouseY = max(0, _y) * SCREEN_INFO.scale
+                // FS Support : point de départ du glissement, pour le défilement de secours
+                fsStartX = mouseX
+                fsStartY = mouseY
                 startGesture(mouseX, mouseY)
             }
             TOUCH_PAN_END -> {
-                endGesture(mouseX, mouseY)
+                // FS Support : un glissement se rejoue en défilement, jamais en clic
+                val startX = fsStartX
+                val startY = fsStartY
+                val endX = mouseX
+                val endY = mouseY
+                endGesture(mouseX, mouseY) { fsFallbackSwipe(startX, startY, endX, endY) }
                 mouseX = max(0, _x) * SCREEN_INFO.scale
                 mouseY = max(0, _y) * SCREEN_INFO.scale
             }
@@ -253,8 +309,8 @@ class InputService : AccessibilityService() {
         } else {
             isWheelActionsPolling = true
         }
-        wheelActionsQueue.poll()?.let {
-            dispatchGesture(it, null, null)
+        wheelActionsQueue.poll()?.let { (gesture, fallback) ->
+            fsDispatchGesture(gesture, true, fallback)
             timer.purge()
             timer.schedule(object : TimerTask() {
                 override fun run() {
@@ -269,7 +325,7 @@ class InputService : AccessibilityService() {
     }
 
     @RequiresApi(Build.VERSION_CODES.N)
-    private fun performClick(x: Int, y: Int, duration: Long) {
+    private fun performClick(x: Int, y: Int, duration: Long, fallback: (() -> Unit)? = null) {
         val path = Path()
         path.moveTo(x.toFloat(), y.toFloat())
         try {
@@ -277,7 +333,7 @@ class InputService : AccessibilityService() {
             val builder = GestureDescription.Builder()
             builder.addStroke(longPressStroke)
             Log.d(logTag, "performClick x:$x y:$y time:$duration")
-            dispatchGesture(builder.build(), null, null)
+            fsDispatchGesture(builder.build(), true, fallback)
         } catch (e: Exception) {
             Log.e(logTag, "performClick, error:$e")
         }
@@ -285,7 +341,8 @@ class InputService : AccessibilityService() {
 
     @RequiresApi(Build.VERSION_CODES.N)
     private fun longPress(x: Int, y: Int) {
-        performClick(x, y, longPressDuration)
+        // FS Support : en secours, ACTION_LONG_CLICK sur le nœud sous le point
+        performClick(x, y, longPressDuration) { fsFallbackClick(x, y, true) }
     }
 
     private fun startGesture(x: Int, y: Int) {
@@ -301,12 +358,14 @@ class InputService : AccessibilityService() {
     }
 
     @RequiresApi(Build.VERSION_CODES.N)
-    private fun doDispatchGesture(x: Int, y: Int, willContinue: Boolean) {
+    private fun doDispatchGesture(x: Int, y: Int, willContinue: Boolean, fallback: (() -> Unit)? = null) {
         touchPath.lineTo(x.toFloat(), y.toFloat())
         var duration = System.currentTimeMillis() - lastTouchGestureStartTime
         if (duration <= 0) {
             duration = 1
         }
+        // FS Support : un geste neuf (pas une continuation) interrompt les gestes encore en cours
+        val isNew = stroke == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O
         try {
             if (stroke == null) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -339,7 +398,7 @@ class InputService : AccessibilityService() {
                 val builder = GestureDescription.Builder()
                 builder.addStroke(it)
                 Log.d(logTag, "doDispatchGesture x:$x y:$y time:$duration")
-                dispatchGesture(builder.build(), null, null)
+                fsDispatchGesture(builder.build(), isNew, fallback)
             }
         } catch (e: Exception) {
             Log.e(logTag, "doDispatchGesture, willContinue:$willContinue, error:$e")
@@ -361,7 +420,7 @@ class InputService : AccessibilityService() {
     }
 
     @RequiresApi(Build.VERSION_CODES.N)
-    private fun endGestureBelowO(x: Int, y: Int) {
+    private fun endGestureBelowO(x: Int, y: Int, fallback: (() -> Unit)?) {
         try {
             touchPath.lineTo(x.toFloat(), y.toFloat())
             var duration = System.currentTimeMillis() - lastTouchGestureStartTime
@@ -376,20 +435,286 @@ class InputService : AccessibilityService() {
             val builder = GestureDescription.Builder()
             builder.addStroke(stroke)
             Log.d(logTag, "end gesture x:$x y:$y time:$duration")
-            dispatchGesture(builder.build(), null, null)
+            fsDispatchGesture(builder.build(), true, fallback)
         } catch (e: Exception) {
             Log.e(logTag, "endGesture error:$e")
         }
     }
 
     @RequiresApi(Build.VERSION_CODES.N)
-    private fun endGesture(x: Int, y: Int) {
+    private fun endGesture(x: Int, y: Int, fallback: (() -> Unit)? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            doDispatchGesture(x, y, false)
+            doDispatchGesture(x, y, false, fallback)
             touchPath.reset()
             stroke = null
         } else {
-            endGestureBelowO(x, y)
+            endGestureBelowO(x, y, fallback)
+        }
+    }
+
+    // FS Support : envoie le geste en écoutant son résultat. Un refus (retour false ou onCancelled)
+    // est compté ; à partir du seuil, l'action est rejouée par les nœuds d'accessibilité.
+    // Un geste qui aboutit remet le compteur à zéro : rien ne change là où les gestes marchent.
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun fsDispatchGesture(gesture: GestureDescription, isNew: Boolean, fallback: (() -> Unit)?) {
+        val seq = fsGestureSeq.incrementAndGet()
+        if (isNew) {
+            fsLastNewGestureSeq.accumulateAndGet(seq) { a, b -> max(a, b) }
+        }
+        val callback = object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                if (fsGestureRefusals.getAndSet(0) >= FS_GESTURE_REFUSAL_THRESHOLD) {
+                    Log.i(logTag, "FS Support : gestes de nouveau acceptés, mode de secours suspendu")
+                }
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                fsOnGestureRefused(seq, fallback)
+            }
+        }
+        val accepted = try {
+            dispatchGesture(gesture, callback, null)
+        } catch (e: Exception) {
+            Log.w(logTag, "FS Support : dispatchGesture en échec : $e")
+            false
+        }
+        if (!accepted) {
+            // FS Support : le rappel ne viendra pas, on compte le refus ici
+            fsOnGestureRefused(seq, fallback)
+        }
+    }
+
+    // FS Support : compte un refus de geste et, à partir du seuil, lance l'action de secours
+    private fun fsOnGestureRefused(seq: Int, fallback: (() -> Unit)?) {
+        // FS Support : un geste interrompu par un geste plus récent n'est pas un refus de l'appareil
+        if (seq < fsLastNewGestureSeq.get()) {
+            return
+        }
+        val refusals = fsGestureRefusals.incrementAndGet()
+        if (refusals == FS_GESTURE_REFUSAL_THRESHOLD) {
+            Log.w(logTag, "FS Support : l'appareil refuse les gestes, mode de secours par nœuds d'accessibilité")
+        }
+        if (refusals >= FS_GESTURE_REFUSAL_THRESHOLD && fallback != null) {
+            fsRunFallback(fallback)
+        }
+    }
+
+    // FS Support : exécute l'action de secours sur son fil, sans jamais faire planter le service
+    private fun fsRunFallback(fallback: () -> Unit) {
+        val task = Runnable {
+            try {
+                fallback()
+            } catch (e: Exception) {
+                Log.w(logTag, "FS Support : action de secours en échec : $e")
+            }
+        }
+        val handler = fsFallbackHandler
+        if (handler == null || !handler.post(task)) {
+            task.run()
+        }
+    }
+
+    // FS Support : action à rejouer au relâchement du bouton gauche, toujours au point d'appui :
+    // glissement -> défilement, appui tenu -> appui long, sinon clic
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun fsPointerUpFallback(upX: Int, upY: Int): () -> Unit {
+        val startX = fsStartX
+        val startY = fsStartY
+        val moved = fsMoved
+        val held = System.currentTimeMillis() - fsStartTime >= longPressDuration
+        return {
+            if (moved) {
+                fsFallbackSwipe(startX, startY, upX, upY)
+            } else {
+                fsFallbackClick(startX, startY, held)
+            }
+        }
+    }
+
+    // FS Support : clic (ou appui long) de secours sur le nœud cliquable le plus profond sous le point,
+    // comme un vrai toucher ; à défaut, ACTION_FOCUS puis l'action sur le nœud visible le plus profond
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun fsFallbackClick(x: Int, y: Int, longClick: Boolean) {
+        val action = if (longClick) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
+        val search = FsNodeSearch(x, y)
+        try {
+            val target = fsFindNodeAt(search) { if (longClick) it.isLongClickable else it.isClickable }
+            var done = false
+            if (target != null) {
+                done = target.performAction(action)
+            } else {
+                search.deepest?.let { node ->
+                    node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                    done = node.performAction(action)
+                }
+            }
+            Log.d(logTag, "FS Support : secours ${if (longClick) "appui long" else "clic"} x:$x y:$y cible:${target != null} résultat:$done")
+        } catch (e: Exception) {
+            Log.w(logTag, "FS Support : secours clic impossible x:$x y:$y : $e")
+        } finally {
+            search.recycle()
+        }
+    }
+
+    // FS Support : un glissement se rejoue en défilement, jamais en clic ; trop court, il est ignoré
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun fsFallbackSwipe(startX: Int, startY: Int, endX: Int, endY: Int) {
+        val dx = endX - startX
+        val dy = endY - startY
+        if (abs(dx) + abs(dy) <= fsTouchSlop) {
+            Log.d(logTag, "FS Support : glissement trop court, ignoré en secours")
+            return
+        }
+        fsFallbackScroll(startX, startY, dx, dy)
+    }
+
+    // FS Support : molette en secours ; une action de défilement avance d'une page,
+    // donc une seule par rafale de crans dans le même sens
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun fsFallbackWheel(x: Int, y: Int, dy: Int) {
+        val forward = dy < 0
+        val now = System.currentTimeMillis()
+        if (forward == fsLastWheelForward && now - fsLastWheelFallbackTime < FS_WHEEL_FALLBACK_INTERVAL) {
+            return
+        }
+        fsLastWheelFallbackTime = now
+        fsLastWheelForward = forward
+        fsFallbackScroll(x, y, 0, dy)
+    }
+
+    // FS Support : défilement de secours selon le déplacement (dx, dy) du doigt parti de (x, y).
+    // Doigt vers le haut = contenu vers le bas (en avant). Action directionnelle (API 23+) sur le
+    // premier ancêtre défilant qui la propose, sinon ACTION_SCROLL_FORWARD / BACKWARD.
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun fsFallbackScroll(x: Int, y: Int, dx: Int, dy: Int) {
+        val vertical = abs(dy) >= abs(dx)
+        val forward = if (vertical) dy < 0 else dx < 0
+        val directional = when {
+            vertical && forward -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN
+            vertical -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP
+            forward -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT
+            else -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT
+        }.id
+        val generic = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        val search = FsNodeSearch(x, y)
+        try {
+            var action = directional
+            var target = fsFindNodeAt(search) { it.isScrollable && fsHasAction(it, directional) }
+            if (target == null) {
+                action = generic
+                target = fsFindNodeAt(search) { it.isScrollable }
+            }
+            val done = target?.performAction(action) ?: false
+            Log.d(logTag, "FS Support : secours défilement x:$x y:$y dx:$dx dy:$dy cible:${target != null} résultat:$done")
+        } catch (e: Exception) {
+            Log.w(logTag, "FS Support : secours défilement impossible x:$x y:$y : $e")
+        } finally {
+            search.recycle()
+        }
+    }
+
+    private fun fsHasAction(node: AccessibilityNodeInfo, actionId: Int): Boolean =
+        node.actionList.any { it.id == actionId }
+
+    // FS Support : nœud le plus profond sous le point qui satisfait accept, dans la fenêtre du dessus
+    // (un vrai toucher ne va pas plus bas), ou à défaut dans la fenêtre active
+    private fun fsFindNodeAt(search: FsNodeSearch, accept: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        var windowList: List<AccessibilityWindowInfo> = emptyList()
+        try {
+            windowList = windows.sortedByDescending { it.layer }
+            val windowBounds = Rect()
+            for (window in windowList) {
+                window.getBoundsInScreen(windowBounds)
+                if (!windowBounds.contains(search.x, search.y)) {
+                    continue
+                }
+                val root = window.root ?: continue
+                search.obtained.add(root)
+                if (fsIsUnderPoint(root, search)) {
+                    return fsFindIn(root, search, accept, 0)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(logTag, "FS Support : lecture des fenêtres impossible : $e")
+        } finally {
+            fsRecycleWindows(windowList)
+        }
+        val root = rootInActiveWindow ?: return null
+        search.obtained.add(root)
+        return if (fsIsUnderPoint(root, search)) fsFindIn(root, search, accept, 0) else null
+    }
+
+    // FS Support : parcourt les enfants sous le point, du dessus (dernier) vers le dessous, et renvoie
+    // le plus profond accepté ; retient au passage le nœud visible le plus profond
+    private fun fsFindIn(
+        node: AccessibilityNodeInfo,
+        search: FsNodeSearch,
+        accept: (AccessibilityNodeInfo) -> Boolean,
+        depth: Int
+    ): AccessibilityNodeInfo? {
+        var childUnderPoint = false
+        if (depth < FS_MAX_NODE_DEPTH) {
+            for (i in node.childCount - 1 downTo 0) {
+                val child = node.getChild(i) ?: continue
+                search.obtained.add(child)
+                if (!fsIsUnderPoint(child, search)) {
+                    continue
+                }
+                childUnderPoint = true
+                val found = fsFindIn(child, search, accept, depth + 1)
+                if (found != null) {
+                    return found
+                }
+            }
+        }
+        if (!childUnderPoint && search.deepest == null) {
+            search.deepest = node
+        }
+        return if (accept(node)) node else null
+    }
+
+    private fun fsIsUnderPoint(node: AccessibilityNodeInfo, search: FsNodeSearch): Boolean {
+        if (!node.isVisibleToUser) {
+            return false
+        }
+        node.getBoundsInScreen(search.bounds)
+        return search.bounds.contains(search.x, search.y)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun fsRecycleWindows(windowList: List<AccessibilityWindowInfo>) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            return
+        }
+        for (window in windowList) {
+            try {
+                window.recycle()
+            } catch (e: Exception) {
+                Log.w(logTag, "FS Support : recyclage de fenêtre impossible : $e")
+            }
+        }
+    }
+
+    // FS Support : recherche d'un nœud sous un point ; tous les nœuds obtenus sont recyclés à la fin
+    private class FsNodeSearch(val x: Int, val y: Int) {
+        val obtained = ArrayList<AccessibilityNodeInfo>()
+        val bounds = Rect()
+        // FS Support : nœud visible le plus profond sous le point (branche du dessus)
+        var deepest: AccessibilityNodeInfo? = null
+
+        @Suppress("DEPRECATION")
+        fun recycle() {
+            deepest = null
+            if (Build.VERSION.SDK_INT < 33) {
+                for (node in obtained) {
+                    try {
+                        node.recycle()
+                    } catch (e: Exception) {
+                        Log.w("input service", "FS Support : recyclage de nœud impossible : $e")
+                    }
+                }
+            }
+            obtained.clear()
         }
     }
 
@@ -735,6 +1060,13 @@ class InputService : AccessibilityService() {
             info.flags = FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         }
         setServiceInfo(info)
+        // FS Support : fil des actions de secours (clics par nœuds d'accessibilité)
+        if (fsFallbackHandler == null) {
+            val thread = HandlerThread("fs-support-secours")
+            thread.start()
+            fsFallbackThread = thread
+            fsFallbackHandler = Handler(thread.looper)
+        }
         fakeEditTextForTextStateCalculation = EditText(this)
         // Size here doesn't matter, we won't show this view.
         fakeEditTextForTextStateCalculation?.layoutParams = LayoutParams(100, 100)
@@ -746,6 +1078,10 @@ class InputService : AccessibilityService() {
 
     override fun onDestroy() {
         ctx = null
+        // FS Support : arrêt du fil des actions de secours
+        fsFallbackHandler = null
+        fsFallbackThread?.quitSafely()
+        fsFallbackThread = null
         // Keep this fallback even though onUnbind usually notifies first.
         notifyInputState()
         super.onDestroy()
