@@ -2,8 +2,10 @@ package com.carriez.flutter_hbb
 
 import android.Manifest.permission.*
 import android.annotation.SuppressLint
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.media.AudioRecord
 import android.media.AudioRecord.READ_BLOCKING
 import android.media.MediaCodecList
@@ -133,6 +135,53 @@ private fun startOverlaySettingsFallback(context: Context) {
             return
         } catch (e: Exception) {
             Log.w("common", "FS Support : réglage indisponible : ${intent.action}", e)
+        }
+    }
+}
+
+// FS Support (assistant « Ecran client ») : ouvre directement la fiche du service d'accessibilite
+// FS Support (ACCESSIBILITY_DETAILS_SETTINGS + composant), avec repli sur la liste generale puis la
+// fiche de l'appli pour les ROM qui n'ont pas cette page (boitiers TV, Amlogic « Droidlogic »).
+fun startAccessibilityDetails(context: Context) {
+    val component = ComponentName(context, InputService::class.java).flattenToString()
+    val detail = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS").apply {
+        putExtra("android.intent.extra.COMPONENT_NAME", component)
+        // Certaines ROM lisent plutot l'argument de fragment des Reglages.
+        putExtra(":settings:fragment_args_key", component)
+        val args = Bundle()
+        args.putString(":settings:fragment_args_key", component)
+        putExtra(":settings:show_fragment_args", args)
+    }
+    val intents = listOf(
+        detail,
+        Intent(ACTION_ACCESSIBILITY_SETTINGS),
+        Intent(ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.packageName)),
+    )
+    for (intent in intents) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (e: Exception) {
+            Log.w("common", "FS Support : page d'accessibilite indisponible : ${intent.action}", e)
+        }
+    }
+}
+
+// FS Support (assistant « Ecran client ») : ouvre « Installer des applis inconnues » pour FS Support
+// (MANAGE_UNKNOWN_APP_SOURCES + package:), avec repli sur la liste generale puis la fiche de l'appli.
+fun startManageUnknownSources(context: Context) {
+    val pkg = Uri.parse("package:" + context.packageName)
+    val intents = listOf(
+        Intent("android.settings.MANAGE_UNKNOWN_APP_SOURCES", pkg),
+        Intent("android.settings.MANAGE_UNKNOWN_APP_SOURCES"),
+        Intent(ACTION_APPLICATION_DETAILS_SETTINGS, pkg),
+    )
+    for (intent in intents) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (e: Exception) {
+            Log.w("common", "FS Support : reglage sources inconnues indisponible : ${intent.action}", e)
         }
     }
 }

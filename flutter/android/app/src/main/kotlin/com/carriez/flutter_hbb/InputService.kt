@@ -78,6 +78,43 @@ class InputService : AccessibilityService() {
         private const val FS_WHEEL_FALLBACK_INTERVAL = 350L
         // FS Support : profondeur maximale explorée dans l'arbre des nœuds
         private const val FS_MAX_NODE_DEPTH = 64
+
+        // FS Support (mode Ecran client) : écart minimal entre deux clics automatiques de
+        // validation (fenêtre de consentement / installateur), pour ne pas cliquer en rafale.
+        private const val FS_AUTO_CLICK_THROTTLE = 500L
+        // FS Support : le texte de la fenêtre système DOIT mentionner l'appli avant tout clic.
+        private const val FS_APP_LABEL = "fs support"
+        // FS Support : paquets hôtes de la fenêtre de consentement MediaProjection.
+        private val FS_MEDIA_PROJECTION_PACKAGES = setOf(
+            "com.android.systemui",
+            "android",
+        )
+        // FS Support : installateurs de paquets connus (validation de la propre mise à jour).
+        private val FS_PACKAGE_INSTALLER_PACKAGES = setOf(
+            "com.android.packageinstaller",
+            "com.google.android.packageinstaller",
+            "com.android.packageinstaller.permission",
+        )
+        // FS Support : libellés du bouton positif de consentement de capture (FR/EN, ROM variées).
+        private val FS_CAPTURE_POSITIVE_TEXTS = listOf(
+            "démarrer maintenant", "demarrer maintenant", "commencer maintenant",
+            "start now", "démarrer", "demarrer", "commencer", "start", "autoriser", "allow",
+        )
+        // FS Support : sélecteur Android 14+ « Tout l'écran » (choisi avant le bouton positif).
+        private val FS_CAPTURE_ENTIRE_SCREEN_TEXTS = listOf(
+            "tout l'écran", "tout l'ecran", "l'intégralité de l'écran", "l'integralite de l'ecran",
+            "entire screen", "whole screen", "full screen",
+        )
+        // FS Support : bouton d'installation / de mise à jour de l'installateur (FR/EN).
+        private val FS_INSTALL_POSITIVE_TEXTS = listOf(
+            "mettre à jour", "mettre a jour", "installer", "update", "install",
+        )
+        // FS Support : bouton de fin de l'installateur. « Terminé » d'abord (ne couvre pas l'écran
+        // du client), « Ouvrir » en repli ; le redémarrage réel passe par ACTION_MY_PACKAGE_REPLACED.
+        private val FS_INSTALL_DONE_TEXTS = listOf(
+            "terminé", "termine", "fermer", "ok", "done", "close",
+        )
+        private val FS_INSTALL_OPEN_TEXTS = listOf("ouvrir", "open")
     }
 
     private fun notifyInputState() {
@@ -129,6 +166,9 @@ class InputService : AccessibilityService() {
     // FS Support : fil dédié aux actions de secours (une requête de nœuds peut bloquer plusieurs secondes)
     private var fsFallbackThread: HandlerThread? = null
     @Volatile private var fsFallbackHandler: Handler? = null
+    // FS Support (mode Ecran client) : anti-rafale des clics automatiques et étape d'installation en cours.
+    @Volatile private var fsLastAutoClick = 0L
+    @Volatile private var fsInstallClicked = false
     // FS Support : seuil de glissement en pixels d'écran, 8 dp comme ViewConfiguration
     private val fsTouchSlop: Int by lazy { max(8, (8 * resources.displayMetrics.density).toInt()) }
 
@@ -1069,6 +1109,220 @@ class InputService : AccessibilityService() {
 
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        // FS Support (mode Ecran client) : validation automatique de fenêtres système ciblées.
+        // Hors de ce mode, ou hors des fenêtres de temps ouvertes par l'app, on ne fait RIEN :
+        // sortie immédiate, aucun impact sur le reste (clics de secours, saisie clavier...).
+        // Les API utilisées ici (windows, performAction, viewId...) existent toutes avant Android N.
+        val captureActive = FsClientScreen.captureConsentActive()
+        val installActive = FsClientScreen.installConsentActive()
+        if (!captureActive && !installActive) {
+            return
+        }
+        val pkg = event.packageName?.toString() ?: return
+        val isMediaProjection = captureActive && FS_MEDIA_PROJECTION_PACKAGES.contains(pkg)
+        val isInstaller = installActive && FS_PACKAGE_INSTALLER_PACKAGES.contains(pkg)
+        if (!isMediaProjection && !isInstaller) {
+            return
+        }
+        if (!FsClientScreen.isEnabled(applicationContext)) {
+            return
+        }
+        // Les recherches de nœuds peuvent bloquer : on les déporte sur le fil de secours.
+        fsRunFallback {
+            if (isMediaProjection) {
+                fsAutoConfirmCapture()
+            }
+            if (isInstaller) {
+                fsAutoConfirmInstall()
+            }
+        }
+    }
+
+    // FS Support : clic positif automatique sur la fenêtre de consentement de capture (MediaProjection).
+    // Ne clique QUE si la fenêtre mentionne « FS Support ». Android 14+ : choisit « Tout l'écran »
+    // avant de valider. Journalise chaque clic.
+    private fun fsAutoConfirmCapture() {
+        if (!FsClientScreen.captureConsentActive()) {
+            return
+        }
+        if (!fsReadyForAutoClick()) {
+            return
+        }
+        fsWithConsentRoots(FS_MEDIA_PROJECTION_PACKAGES) { root ->
+            if (!fsNodeTreeMentionsApp(root)) {
+                return@fsWithConsentRoots false
+            }
+            // Android 14+ : sélecteur « Un seul appli / Tout l'écran ». On choisit « Tout l'écran ».
+            fsFindByTexts(root, FS_CAPTURE_ENTIRE_SCREEN_TEXTS)?.let { entire ->
+                if (fsClickNode(entire)) {
+                    Log.i(logTag, "FS Support : capture — option « Tout l'écran » choisie automatiquement")
+                }
+            }
+            val positive = fsFindByViewId(root, "android:id/button1")
+                ?: fsFindByTexts(root, FS_CAPTURE_POSITIVE_TEXTS)
+            if (positive != null && fsClickNode(positive)) {
+                Log.i(logTag, "FS Support : consentement de capture validé automatiquement")
+                FsClientScreen.clearCaptureConsentWindow()
+                fsMarkAutoClick()
+                return@fsWithConsentRoots true
+            }
+            false
+        }
+    }
+
+    // FS Support : validation automatique de l'installateur pour la propre mise à jour de l'appli.
+    // Ne clique QUE si la fenêtre mentionne « FS Support ». Clique « Installer »/« Mettre à jour »,
+    // puis « Terminé »/« Ouvrir » à la fin. Journalise chaque clic.
+    private fun fsAutoConfirmInstall() {
+        if (!FsClientScreen.installConsentActive()) {
+            return
+        }
+        if (!fsReadyForAutoClick()) {
+            return
+        }
+        fsWithConsentRoots(FS_PACKAGE_INSTALLER_PACKAGES) { root ->
+            if (!fsNodeTreeMentionsApp(root)) {
+                return@fsWithConsentRoots false
+            }
+            val install = fsFindByViewId(root, "android:id/button1")
+                ?: fsFindByTexts(root, FS_INSTALL_POSITIVE_TEXTS)
+            if (install != null && fsClickNode(install)) {
+                Log.i(logTag, "FS Support : installation de la mise à jour validée automatiquement")
+                fsInstallClicked = true
+                fsMarkAutoClick()
+                return@fsWithConsentRoots true
+            }
+            // Écran de fin : « Terminé » (préféré), sinon « Ouvrir ». Le redémarrage du service
+            // passe par ACTION_MY_PACKAGE_REPLACED, pas par « Ouvrir ».
+            if (fsInstallClicked) {
+                val done = fsFindByTexts(root, FS_INSTALL_DONE_TEXTS)
+                    ?: fsFindByTexts(root, FS_INSTALL_OPEN_TEXTS)
+                if (done != null && fsClickNode(done)) {
+                    Log.i(logTag, "FS Support : fin de l'installation confirmée automatiquement")
+                    fsInstallClicked = false
+                    FsClientScreen.clearInstallConsentWindow()
+                    fsMarkAutoClick()
+                    return@fsWithConsentRoots true
+                }
+            }
+            false
+        }
+    }
+
+    private fun fsReadyForAutoClick(): Boolean =
+        System.currentTimeMillis() - fsLastAutoClick >= FS_AUTO_CLICK_THROTTLE
+
+    private fun fsMarkAutoClick() {
+        fsLastAutoClick = System.currentTimeMillis()
+    }
+
+    // FS Support : exécute [visit] sur la racine de chaque fenêtre appartenant à [packages] (plus
+    // rootInActiveWindow en repli), s'arrête dès que [visit] renvoie true. Recycle les nœuds obtenus.
+    private fun fsWithConsentRoots(
+        packages: Set<String>,
+        visit: (AccessibilityNodeInfo) -> Boolean
+    ) {
+        val obtained = ArrayList<AccessibilityNodeInfo>()
+        var windowList: List<AccessibilityWindowInfo> = emptyList()
+        try {
+            windowList = windows
+            for (window in windowList) {
+                val root = window.root ?: continue
+                obtained.add(root)
+                val pkg = root.packageName?.toString()
+                if (pkg != null && packages.contains(pkg)) {
+                    if (visit(root)) {
+                        return
+                    }
+                }
+            }
+            val active = rootInActiveWindow
+            if (active != null) {
+                obtained.add(active)
+                val pkg = active.packageName?.toString()
+                if (pkg != null && packages.contains(pkg)) {
+                    visit(active)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(logTag, "FS Support : lecture des fenêtres de consentement impossible : $e")
+        } finally {
+            fsRecycleWindows(windowList)
+            if (Build.VERSION.SDK_INT < 33) {
+                for (node in obtained) {
+                    try {
+                        node.recycle()
+                    } catch (e: Exception) {
+                        Log.w(logTag, "FS Support : recyclage de nœud (consentement) impossible : $e")
+                    }
+                }
+            }
+        }
+    }
+
+    // FS Support : l'arbre mentionne-t-il « FS Support » (texte, description ou id) ? Garde anti-faux clic.
+    private fun fsNodeTreeMentionsApp(root: AccessibilityNodeInfo): Boolean =
+        fsFindNode(root, 0) { fsNodeMatchesTexts(it, listOf(FS_APP_LABEL)) } != null
+
+    private fun fsFindByTexts(root: AccessibilityNodeInfo, texts: List<String>): AccessibilityNodeInfo? =
+        fsFindNode(root, 0) { fsNodeMatchesTexts(it, texts) }
+
+    private fun fsFindByViewId(root: AccessibilityNodeInfo, viewId: String): AccessibilityNodeInfo? =
+        fsFindNode(root, 0) { it.viewIdResourceName == viewId && it.isVisibleToUser }
+
+    // FS Support : DFS borné en profondeur, renvoie le premier nœud accepté.
+    private fun fsFindNode(
+        node: AccessibilityNodeInfo?,
+        depth: Int,
+        accept: (AccessibilityNodeInfo) -> Boolean
+    ): AccessibilityNodeInfo? {
+        if (node == null || depth > FS_MAX_NODE_DEPTH) {
+            return null
+        }
+        if (accept(node)) {
+            return node
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = fsFindNode(child, depth + 1, accept)
+            if (found != null) {
+                return found
+            }
+        }
+        return null
+    }
+
+    // FS Support : le texte ou la description du nœud contient-il l'un des libellés (sans casse) ?
+    private fun fsNodeMatchesTexts(node: AccessibilityNodeInfo, texts: List<String>): Boolean {
+        val haystacks = listOfNotNull(
+            node.text?.toString()?.lowercase(),
+            node.contentDescription?.toString()?.lowercase(),
+        )
+        if (haystacks.isEmpty()) {
+            return false
+        }
+        for (needle in texts) {
+            for (hay in haystacks) {
+                if (hay.contains(needle)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // FS Support : clique le nœud, ou son premier ancêtre cliquable (bouton dont le libellé est un enfant).
+    private fun fsClickNode(node: AccessibilityNodeInfo): Boolean {
+        var current: AccessibilityNodeInfo? = node
+        var hops = 0
+        while (current != null && hops < 8) {
+            if (current.isClickable && current.isEnabled) {
+                return current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+            current = current.parent
+            hops++
+        }
+        return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
     }
 
     override fun onServiceConnected() {
@@ -1081,6 +1335,14 @@ class InputService : AccessibilityService() {
         } else {
             info.flags = FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         }
+        // FS Support (mode Ecran client) : recevoir les évènements de fenêtre pour valider
+        // automatiquement la fenêtre de capture et l'installateur. Ce AccessibilityServiceInfo
+        // construit à la main remplace la config XML : sans eventTypes ici, aucun évènement
+        // n'arrivait (les clics de secours, eux, passent par l'API windows, pas par les évènements).
+        info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED
+        info.notificationTimeout = 100L
         setServiceInfo(info)
         // FS Support : fil des actions de secours (clics par nœuds d'accessibilité)
         if (fsFallbackHandler == null) {

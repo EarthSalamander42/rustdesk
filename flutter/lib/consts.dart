@@ -475,14 +475,29 @@ class AndroidChannel {
   // FS Support acces direct
   static final kFsProjectMediaAllowed = "fs_project_media_allowed";
   static final kFsReactivateAccessibility = "fs_reactivate_accessibility";
+  // FS Support mode « Ecran client »
+  static final kFsSetClientScreen = "fs_set_client_screen";
+  static final kFsGetClientScreen = "fs_get_client_screen";
+  static final kFsCanInstallUnknown = "fs_can_install_unknown";
+  static final kFsInstallUpdate = "fs_install_update";
+  static final kFsOpenAccessibilityDetails = "fs_open_accessibility_details";
+  static final kFsOpenUnknownSources = "fs_open_unknown_sources";
 }
 
 // FS Support : option locale forcant les clics par noeuds d'accessibilite (lue cote Kotlin
 // par FFI.getLocalOption, voir KEY_FS_FORCE_ACCESSIBILITY_CLICKS dans common.kt).
 const String kOptionFsForceAccessibilityClicks = "fs-force-accessibility-clicks";
 
-// FS Support : interrupteur maitre « Acces direct » (etat du reglage, cote client).
-const String kOptionFsDirectAccess = "fs-direct-access";
+// FS Support : interrupteur maitre du mode « Ecran client » (etat du reglage, cote client).
+// Ce mode remplace et englobe l'ancien « Acces direct » : un seul reglage, pas deux.
+const String kOptionFsClientScreen = "fs-client-screen";
+
+// FS Support : ancienne cle « Acces direct ». Conservee UNIQUEMENT pour migrer un appareil deja
+// configure vers la nouvelle cle (voir fs_client_screen.dart). Plus aucun reglage ne l'ecrit.
+const String kOptionFsDirectAccessLegacy = "fs-direct-access";
+
+// FS Support : l'assistant de mise en place « Ecran client » a-t-il deja ete vu (1er lancement) ?
+const String kOptionFsClientScreenWizardSeen = "fs-client-screen-wizard-seen";
 
 /// flutter/packages/flutter/lib/src/services/keyboard_key.dart -> _keyLabels
 /// see [LogicalKeyboardKey.keyLabel]

@@ -342,6 +342,45 @@ class MainActivity : FlutterActivity() {
                     // FS Support acces direct : tentative de reactivation via WRITE_SECURE_SETTINGS.
                     result.success(FsDirectAccess.reactivateAccessibilityIfPossible(context))
                 }
+                "fs_set_client_screen" -> {
+                    // FS Support : active/desactive le mode « Ecran client » (source de verite Kotlin).
+                    val enabled = call.arguments as? Boolean ?: false
+                    FsClientScreen.setEnabled(context, enabled)
+                    // Mode « Ecran client » => demarrage au boot coherent cote reglage historique aussi.
+                    if (enabled) {
+                        val prefs = getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
+                        prefs.edit().putBoolean(KEY_START_ON_BOOT_OPT, true).apply()
+                    }
+                    result.success(true)
+                }
+                "fs_get_client_screen" -> {
+                    result.success(FsClientScreen.isEnabled(context))
+                }
+                "fs_can_install_unknown" -> {
+                    // FS Support : l'appli peut-elle installer sa propre mise a jour (sources inconnues) ?
+                    result.success(FsSelfUpdate.canInstallUnknown(context))
+                }
+                "fs_install_update" -> {
+                    // FS Support : telecharge l'APK FS Support et lance l'installateur (valide seul
+                    // par l'accessibilite en mode « Ecran client »). Travail asynchrone.
+                    val url = call.arguments as? String
+                    if (url.isNullOrEmpty()) {
+                        result.success(false)
+                    } else {
+                        FsSelfUpdate.downloadAndInstall(context, url)
+                        result.success(true)
+                    }
+                }
+                "fs_open_accessibility_details" -> {
+                    // FS Support : ouvre directement la fiche du service d'accessibilite FS Support.
+                    startAccessibilityDetails(context)
+                    result.success(true)
+                }
+                "fs_open_unknown_sources" -> {
+                    // FS Support : ouvre « Installer des applis inconnues » pour FS Support.
+                    startManageUnknownSources(context)
+                    result.success(true)
+                }
                 "stop_input" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                         InputService.ctx?.disableSelf()

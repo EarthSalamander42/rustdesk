@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FS Support : chemins exposes par le FileProvider. Seul le dossier des mises a jour
+     (getExternalFilesDir(null)/updates) est partage, pour l'installateur systeme. -->
+<paths>
+    <external-files-path name="fs_updates" path="updates/" />
+</paths>

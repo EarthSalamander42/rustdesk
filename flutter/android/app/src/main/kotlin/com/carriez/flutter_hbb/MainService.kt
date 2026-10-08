@@ -53,6 +53,10 @@ const val DEFAULT_NOTIFY_TEXT = "Service is running"
 const val DEFAULT_NOTIFY_ID = 1
 const val NOTIFY_ID_OFFSET = 100
 
+// FS Support (mode Ecran client) : notification permanente explicite (transparence).
+const val FS_CLIENT_SCREEN_NOTIFY_TITLE = "FS Support"
+const val FS_CLIENT_SCREEN_NOTIFY_TEXT = "Écran géré à distance par FS Solutions"
+
 // FS Support : olive de la charte FS pour la notification de demande (jamais de bleu).
 private val FS_NOTIFY_OLIVE = 0xFF3A422D.toInt()
 
@@ -380,7 +384,8 @@ class MainService : Service() {
         Log.d("whichService", "this service: ${Thread.currentThread()}")
         super.onStartCommand(intent, flags, startId)
         if (intent?.action == ACT_INIT_MEDIA_PROJECTION_AND_SERVICE) {
-            if (intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)) {
+            val fromBoot = intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)
+            if (fromBoot) {
                 FFI.startService()
             }
             Log.d(logTag, "service starting: ${startId}:${Thread.currentThread()}")
@@ -390,6 +395,15 @@ class MainService : Service() {
             intent.getParcelableExtra<Intent>(EXT_MEDIA_PROJECTION_RES_INTENT)?.let {
                 replaceMediaProjection(mediaProjectionManager, it)
             } ?: let {
+                // FS Support (acces direct / ecran client) : au boot il n'y a personne pour ouvrir
+                // une session, donc rien ne declencherait startCapture (add_connection ne vient
+                // qu'a la connexion d'un client). On demande donc a demarrer la capture DES QUE la
+                // projection est prete, pour que l'ecran soit reellement joignable sans intervention.
+                // Hors boot (ex. « init_service » depuis l'UI), comportement RustDesk inchange :
+                // la capture ne demarre qu'a la premiere connexion autorisee.
+                if (fromBoot) {
+                    captureRestartPending = true
+                }
                 Log.d(logTag, "getParcelableExtra intent null, invoke requestMediaProjection")
                 requestMediaProjection()
             }
@@ -880,14 +894,20 @@ class MainService : Service() {
         } else {
             PendingIntent.getActivity(this, 0, intent, FLAG_UPDATE_CURRENT)
         }
+        // FS Support (mode Ecran client) : transparence. La notification permanente dit clairement
+        // que l'ecran est gere a distance par FS Solutions.
+        val clientScreen = FsClientScreen.isEnabled(this)
+        val notifyTitle = if (clientScreen) FS_CLIENT_SCREEN_NOTIFY_TITLE else DEFAULT_NOTIFY_TITLE
+        val notifyText =
+            if (clientScreen) FS_CLIENT_SCREEN_NOTIFY_TEXT else translate(DEFAULT_NOTIFY_TEXT)
         val notification = notificationBuilder
             .setOngoing(true)
             .setSmallIcon(R.mipmap.ic_stat_logo)
             .setDefaults(Notification.DEFAULT_ALL)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setContentTitle(DEFAULT_NOTIFY_TITLE)
-            .setContentText(translate(DEFAULT_NOTIFY_TEXT))
+            .setContentTitle(notifyTitle)
+            .setContentText(notifyText)
             .setOnlyAlertOnce(true)
             .setContentIntent(pendingIntent)
             .setColor(ContextCompat.getColor(this, R.color.primary))

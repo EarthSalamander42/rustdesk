@@ -13,7 +13,7 @@ import '../consts.dart';
 import '../mobile/pages/server_page.dart' show ConnectionManager, showScamWarning;
 import '../models/platform_model.dart';
 import '../models/server_model.dart';
-import 'fs_direct_access.dart';
+import 'fs_client_screen.dart';
 
 /// Active l'écran de partage de l'Atelier sur Android.
 const bool kFsAtelierMobile = true;
@@ -35,6 +35,14 @@ class _FsMobileShareState extends State<FsMobileShare> {
     bind.mainGetVersion().then((v) {
       if (mounted) setState(() => _version = v);
     });
+    // FS Support : au premier lancement sur Android, proposer l'assistant « Ecran client ».
+    if (isAndroid && fsShouldOfferWizard()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          showFsClientScreenWizard(context, widget.serverModel);
+        }
+      });
+    }
   }
 
   bool get _scamWarningDue =>
@@ -121,8 +129,8 @@ class _FsMobileShareState extends State<FsMobileShare> {
           },
           permissions: perms,
           connections: const ConnectionManager(),
-          // FS Support : reglage « Acces direct » (prise en main sans personne devant l'ecran).
-          footer: isAndroid ? FsDirectAccessSection(serverModel: m) : null,
+          // FS Support : mode « Ecran client » (mise en place une fois, puis gestion a distance).
+          footer: isAndroid ? FsClientScreenSection(serverModel: m) : null,
         ),
       ),
     );

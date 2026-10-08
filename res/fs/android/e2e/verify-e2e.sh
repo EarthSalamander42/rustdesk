@@ -68,7 +68,10 @@ case "$SAW" in
 esac
 
 # B. WRITE_SECURE_SETTINGS accordee
-WSS="$(ash dumpsys package "$PKG" | grep WRITE_SECURE_SETTINGS | head -n 1)"
+# dumpsys package liste la permission DEUX fois : dans « requested permissions » (sans etat) et dans
+# « install permissions » (avec « granted=true/false »). On ne garde que la ligne d'etat, sinon la
+# ligne « requested » (la premiere) faisait echouer le test a tort.
+WSS="$(ash dumpsys package "$PKG" | grep WRITE_SECURE_SETTINGS | grep granted= | head -n 1)"
 case "$WSS" in
   *granted=true*) notice "WRITE_SECURE_SETTINGS accordee" ;;
   *) essential_fail "WRITE_SECURE_SETTINGS non accordee : ${WSS:-absente}" ;;

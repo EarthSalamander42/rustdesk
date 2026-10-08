@@ -27,6 +27,13 @@ class PermissionRequestTransparentActivity: Activity() {
                 } else {
                     mediaProjectionManager.createScreenCaptureIntent()
                 }
+                // FS Support (mode Ecran client) : on vient d'appeler createScreenCaptureIntent.
+                // La fenêtre système de consentement va s'ouvrir ; en mode « Ecran client » on
+                // autorise le service d'accessibilité à la valider seul, dans une fenêtre de temps
+                // courte. Aucun effet hors de ce mode (la fenêtre reste simplement ouverte).
+                if (FsClientScreen.isEnabled(this)) {
+                    FsClientScreen.markCaptureConsentWindow()
+                }
                 startActivityForResult(intent, REQ_REQUEST_MEDIA_PROJECTION)
             }
             else -> finish()
