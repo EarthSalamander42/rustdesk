@@ -11,7 +11,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/formatter/id_formatter.dart';
 import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
 import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
-import 'package:flutter_hbb/fs/fs_theme.dart';
 import 'package:flutter_hbb/main.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
@@ -370,8 +369,9 @@ class MyTheme {
     }),
   );
 
-  // FS Support : habillage « A · Atelier » (lib/fs/fs_theme.dart).
-  static ThemeData lightTheme = fsClientTheme(ThemeData(
+  // FS Support : habillage « A · Atelier » appliqué au démarrage par fsApplyClientTheme()
+  // (lib/fs/fs_theme.dart). Ligne laissée intacte : le script CI Flutter 3.44 s’y ancre.
+  static ThemeData lightTheme = ThemeData(
     // https://stackoverflow.com/questions/77537315/after-upgrading-to-flutter-3-16-the-app-bar-background-color-button-size-and
     useMaterial3: false,
     brightness: Brightness.light,
@@ -469,8 +469,8 @@ class MyTheme {
       ColorThemeExtension.light,
       TabbarTheme.light,
     ],
-  ), Brightness.light);
-  static ThemeData darkTheme = fsClientTheme(ThemeData(
+  );
+  static ThemeData darkTheme = ThemeData(
     useMaterial3: false,
     brightness: Brightness.dark,
     hoverColor: Color.fromARGB(255, 45, 46, 53),
@@ -576,7 +576,7 @@ class MyTheme {
       ColorThemeExtension.dark,
       TabbarTheme.dark,
     ],
-  ), Brightness.dark);
+  );
 
   static ThemeMode getThemeModePreference() {
     return themeModeFromString(bind.mainGetLocalOption(key: kCommConfKeyTheme));

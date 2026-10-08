@@ -24,6 +24,7 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'common.dart';
+import 'fs/fs_theme.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
@@ -38,6 +39,7 @@ late List<String> kBootArgs;
 Future<void> main(List<String> args) async {
   earlyAssert();
   WidgetsFlutterBinding.ensureInitialized();
+  fsApplyClientTheme(); // FS Support : habillage « A · Atelier »
 
   debugPrint("launch args: $args");
   kBootArgs = List.from(args);

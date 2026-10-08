@@ -1,13 +1,24 @@
 // FS Support — thème « A · Atelier » appliqué au client.
 //
-// Accroche unique dans `common.dart` : `MyTheme.lightTheme = fsClientTheme(ThemeData(...), Brightness.light)`
-// (idem en sombre). Toutes les fenêtres (accueil, sessions, transfert de fichiers, gestionnaire de connexions)
+// Accroche unique : `fsApplyClientTheme()` en tête de `main()` (main.dart), qui remplace `MyTheme.lightTheme`
+// et `MyTheme.darkTheme`. Les définitions de `common.dart` restent celles de RustDesk : le script CI
+// Flutter 3.44 (.github/patches) s’ancre sur elles. Toutes les fenêtres (accueil, sessions, transfert de fichiers, gestionnaire de connexions)
 // passent par `MyTheme`, le thème se propage donc partout sans autre modification.
 import 'package:flutter/material.dart';
 import 'package:fs_ui/fs_ui.dart';
 
-import '../common.dart' show ColorThemeExtension;
+import '../common.dart' show ColorThemeExtension, MyTheme;
 import '../desktop/widgets/tabbar_widget.dart' show TabbarTheme;
+
+bool _fsThemeApplied = false;
+
+/// Applique l'Atelier aux thèmes RustDesk, une seule fois par isolat (fenêtre principale et sous-fenêtres).
+void fsApplyClientTheme() {
+  if (_fsThemeApplied) return;
+  _fsThemeApplied = true;
+  MyTheme.lightTheme = fsClientTheme(MyTheme.lightTheme, Brightness.light);
+  MyTheme.darkTheme = fsClientTheme(MyTheme.darkTheme, Brightness.dark);
+}
 
 /// Thème Material de l'Atelier, avec les extensions RustDesk recolorées (filets, onglets, toasts).
 ThemeData fsClientTheme(ThemeData base, Brightness brightness) {
