@@ -18,6 +18,7 @@ import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import 'peer_card.dart';
 import 'fs_company_groups.dart';
+import '../../fs/fs_peer_row.dart';
 
 typedef PeerFilter = bool Function(Peer peer);
 typedef PeerCardBuilder = Widget Function(Peer peer);
@@ -252,7 +253,7 @@ class _PeersViewState extends State<_PeersView>
               // and the peers change event will trigger _buildPeersView().
               return !isPortrait
                   ? Obx(() => peerCardUiType.value == PeerUiType.list
-                      ? Container(height: 45, child: visibilityChild)
+                      ? Container(height: fsListRowHeight, child: visibilityChild)
                       : peerCardUiType.value == PeerUiType.grid
                           ? SizedBox(
                               width: 220, height: 140, child: visibilityChild)
@@ -272,7 +273,7 @@ class _PeersViewState extends State<_PeersView>
                           top: index == 0 ? 0 : space / 2, bottom: space / 2);
                     },
                   )
-                : fsGroupByCompany.value
+                : fsGroupByCompany.value && FsGroupingScope.allowed(context)
                     ? FsCompanyGroupedView(
                         peers: peers,
                         cardBuilder: (peer) => buildOnePeer(peer, false),
@@ -282,12 +283,11 @@ class _PeersViewState extends State<_PeersView>
                     : peerCardUiType.value == PeerUiType.list
                     ? ListView.builder(
                         controller: _scrollController,
+                        // FS Support : lignes filetées jointives (Atelier)
+                        padding: const EdgeInsets.only(bottom: 24),
                         itemCount: peers.length,
                         itemBuilder: (BuildContext context, int index) {
-                          return buildOnePeer(peers[index], false).marginOnly(
-                              right: space,
-                              top: index == 0 ? 0 : space / 2,
-                              bottom: space / 2);
+                          return buildOnePeer(peers[index], false);
                         },
                       )
                     : DynamicGridView.builder(

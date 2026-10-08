@@ -14,6 +14,7 @@ import '../../consts.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
 import 'home_page.dart';
+import '../../fs/fs_mobile_share.dart';
 
 class ServerPage extends StatefulWidget implements PageShape {
   @override
@@ -203,7 +204,10 @@ class _ServerPageState extends State<ServerPage> {
     return ChangeNotifierProvider.value(
         value: gFFI.serverModel,
         child: Consumer<ServerModel>(
-            builder: (context, serverModel, child) => SingleChildScrollView(
+            // FS Support : écran de partage de l'Atelier (lib/fs/fs_mobile_share.dart).
+            builder: (context, serverModel, child) => kFsAtelierMobile
+                ? FsMobileShare(serverModel: serverModel)
+                : SingleChildScrollView(
                   controller: gFFI.serverModel.controller,
                   child: Center(
                     child: Column(
@@ -406,7 +410,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                                 }
                               },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
+                          backgroundColor: MyTheme.accent,
                         ),
                         child: Text(
                           isButtonLocked
@@ -429,7 +433,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                           Navigator.of(context).pop();
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
+                          backgroundColor: MyTheme.accent,
                         ),
                         child: Text(
                           translate("Decline"),

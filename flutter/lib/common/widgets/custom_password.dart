@@ -121,7 +121,7 @@ class PasswordStrengthIndicator extends StatelessWidget {
     if (strength < weakMedium) {
       return Colors.yellow;
     } else if (strength < mediumStrong) {
-      return Colors.blue;
+      return const Color(0xFF9FB65D);
     } else {
       return Colors.green;
     }

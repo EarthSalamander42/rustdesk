@@ -1,0 +1,67 @@
+# FS Support : analyse Dart du client sur le runner GitHub (jamais sur FS-DS-1).
+# Les erreurs sont publiées en annotations, lisibles sans compte (les journaux de job ne le sont pas).
+name: FS Dart check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "fs/**"
+    paths:
+      - "flutter/**"
+      - "src/flutter_ffi.rs"
+      - ".github/workflows/fs-dart-check.yml"
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+
+jobs:
+  bridge:
+    uses: ./.github/workflows/bridge.yml
+
+  analyze:
+    needs: bridge
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Restore bridge files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bridge-artifact
+          path: ./
+
+      - name: Install flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Analyse Dart (erreurs en annotations)
+        shell: bash
+        run: |
+          set -u
+          (cd flutter/packages/fs_ui && flutter pub get) > /dev/null || { echo '::error::flutter pub get (fs_ui) en échec'; exit 1; }
+          (cd flutter && flutter pub get) > /dev/null || { echo '::error::flutter pub get en échec'; exit 1; }
+          # Ressources déclarées par fs_ui : le .gitignore racine ignore *png, un oubli casse flutter_assemble.
+          for d in $(sed -n 's#^    - \(assets/.*/\)$#\1#p' flutter/packages/fs_ui/pubspec.yaml); do
+            [ -n "$(git ls-files "flutter/packages/fs_ui/$d")" ] || { echo "::error file=flutter/packages/fs_ui/pubspec.yaml::dossier $d vide ou non versionné"; exit 1; }
+          done
+          : > errors.txt
+          (cd flutter && dart analyze --format=machine lib 2>&1 || true) | grep '^ERROR|' >> errors.txt || true
+          (cd flutter/packages/fs_ui && dart analyze --format=machine lib 2>&1 || true) | grep '^ERROR|' >> errors.txt || true
+          n=$(wc -l < errors.txt)
+          echo "Erreurs Dart : $n"
+          if [ "$n" -eq 0 ]; then exit 0; fi
+          # Format machine : SEVERITE|TYPE|CODE|FICHIER|LIGNE|COLONNE|LONGUEUR|MESSAGE
+          ws="$GITHUB_WORKSPACE/"
+          head -n 9 errors.txt | while IFS='|' read -r _ _ code file line col _ msg; do
+            echo "::error file=${file#$ws},line=${line},col=${col}::${code}: ${msg}"
+          done
+          all=$(head -n 80 errors.txt | awk -F'|' -v ws="$ws" '{f=$4; sub(ws,"",f); m=$8; for(i=9;i<=NF;i++) m=m"|"$i; printf "%s:%s:%s %s %s%%0A", f, $5, $6, $3, m}')
+          echo "::error title=FS Dart (${n} erreurs)::${all}"
+          exit 1

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/widgets/dialog.dart';
 import 'package:flutter_hbb/common/widgets/fs_company_groups.dart';
 import 'package:flutter_hbb/consts.dart';
+import 'package:flutter_hbb/fs/fs_peer_row.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
@@ -94,6 +95,17 @@ class _PeerCardState extends State<_PeerCard>
 
   Widget _buildLandscape() {
     final peer = super.widget.peer;
+    // FS Support : en mode liste, ligne filetée de l'Atelier (lib/fs/fs_peer_row.dart).
+    if (peerCardUiType.value == PeerUiType.list) {
+      final PeerTabModel m = Provider.of(context);
+      return fsPeerRow(context, peer,
+          tabModel: m,
+          onConnect: () => widget.connect(context, peer.id),
+          onMore: (p) {
+            _menuPos = RelativeRect.fromLTRB(p.dx, p.dy, p.dx, p.dy);
+            _showPeerMenu(peer.id);
+          });
+    }
     var deco = Rx<BoxDecoration?>(
       BoxDecoration(
         border: Border.all(color: Colors.transparent, width: _borderWidth),

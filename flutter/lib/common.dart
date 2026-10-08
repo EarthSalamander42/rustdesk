@@ -249,16 +249,16 @@ class MyTheme {
   MyTheme._();
 
   static const Color grayBg = Color(0xFFEFEFF2);
-  static const Color accent = Color(0xFF34412B);
-  static const Color accent50 = Color(0x7734412B);
-  static const Color accent80 = Color(0xAA34412B);
+  static const Color accent = Color(0xFF3A422D);
+  static const Color accent50 = Color(0x773A422D);
+  static const Color accent80 = Color(0xAA3A422D);
   static const Color canvasColor = Color(0xFF212121);
   static const Color border = Color(0xFFCCCCCC);
-  static const Color idColor = Color(0xFF00B6F0);
+  static const Color idColor = Color(0xFF3A422D); // FS Support : olive de l’Atelier (ex-bleu 0xFF00B6F0)
   static const Color darkGray = Color.fromARGB(255, 148, 148, 148);
   static const Color cmIdColor = Color(0xFF21790B);
   static const Color dark = Colors.black87;
-  static const Color button = Color(0xFF34412B);
+  static const Color button = Color(0xFF3A422D);
   static const Color hoverBorder = Color(0xFF999999);
 
   // ListTile
@@ -369,6 +369,8 @@ class MyTheme {
     }),
   );
 
+  // FS Support : habillage « A · Atelier » appliqué au démarrage par fsApplyClientTheme()
+  // (lib/fs/fs_theme.dart). Ligne laissée intacte : le script CI Flutter 3.44 s’y ancre.
   static ThemeData lightTheme = ThemeData(
     // https://stackoverflow.com/questions/77537315/after-upgrading-to-flutter-3-16-the-app-bar-background-color-button-size-and
     useMaterial3: false,
@@ -1150,7 +1152,7 @@ Widget createDialogContent(String text) {
     spans.add(TextSpan(
       text: match.group(0) ?? '',
       style: const TextStyle(
-        color: Colors.blue,
+        color: MyTheme.accent,
         decoration: TextDecoration.underline,
       ),
       recognizer: TapGestureRecognizer()

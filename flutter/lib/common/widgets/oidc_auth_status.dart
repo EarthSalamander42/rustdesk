@@ -85,8 +85,8 @@ class _OidcAuthFallbackState extends State<_OidcAuthFallback> {
           color: theme.colorScheme.onSurfaceVariant,
         );
     final linkColor = theme.brightness == Brightness.dark
-        ? Colors.blue.shade300
-        : Colors.blue.shade800;
+        ? const Color(0xFF9FB65D)
+        : const Color(0xFF3A422D);
     final isTouchPlatform = _touchPlatforms.contains(theme.platform);
     final actionSize =
         isTouchPlatform ? kMinInteractiveDimension : _desktopActionSize;
