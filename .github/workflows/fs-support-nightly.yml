@@ -106,6 +106,11 @@ jobs:
           copy_first "fs-support-${VERSION}-macos-aarch64.dmg" "rustdesk-${VERSION}-*aarch64*.dmg"
           # Linux n'est plus distribué (06/10/2026) : ni .deb ni AppImage (l'ancienne AppImage était republiée sous le nouveau nom).
           copy_first "fs-support-${VERSION}-android-universal.apk" "rustdesk-${VERSION}-*universal*.apk"
+          # Installation macOS en une ligne (curl … | bash, sans quarantaine) : nom fixe, sans version, pour que
+          # la commande donnée aux clients ne change jamais. Il commence par « fs-support- » : la boucle de
+          # suppression ci-dessous retire l'ancien, l'envoi final republie celui-ci. L'API du site l'ignore
+          # (aucune version lisible dans son nom, pas d'extension .dmg/.exe/.apk).
+          cp res/fs/macos-install.sh "$OUT_DIR/fs-support-macos-install.sh"
 
           tar --exclude-vcs --exclude="$WORK_DIR" -czf "$OUT_DIR/fs-support-${VERSION}-source.tar.gz" .
 
