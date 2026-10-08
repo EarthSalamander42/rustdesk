@@ -45,6 +45,12 @@
             </intent-filter>
         </receiver>
 
+        <!-- FS Support : boutons Accepter / Refuser de la notification de demande de prise en main. -->
+        <receiver
+            android:name=".LoginRequestReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <service
             android:name=".InputService"
             android:enabled="true"

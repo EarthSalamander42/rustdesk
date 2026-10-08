@@ -71,6 +71,16 @@ class _FsMobileShareState extends State<FsMobileShare> {
         warning: FsStrings.accessibilityTodo,
         onChanged: (_) => m.toggleInput(),
       ),
+      // Carte native « Demande de prise en main » par-dessus les autres applis (MainService.kt) :
+      // la bascule ouvre le réglage système ; l'état est relu par ServerPage toutes les 3 s.
+      if (isAndroid)
+        FsPermission(
+          icon: Icons.layers_rounded,
+          label: FsStrings.overlay,
+          value: m.overlayOk,
+          warning: FsStrings.overlayTodo,
+          onChanged: (_) => m.openOverlayPermissionSettings(),
+        ),
       FsPermission(
         icon: Icons.folder_open_rounded,
         label: FsStrings.fileTransfer,

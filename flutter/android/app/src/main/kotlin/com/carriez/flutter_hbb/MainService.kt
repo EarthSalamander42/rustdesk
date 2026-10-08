@@ -28,6 +28,7 @@ import android.media.*
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.*
+import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Surface
@@ -51,6 +52,9 @@ const val DEFAULT_NOTIFY_TITLE = "RustDesk"
 const val DEFAULT_NOTIFY_TEXT = "Service is running"
 const val DEFAULT_NOTIFY_ID = 1
 const val NOTIFY_ID_OFFSET = 100
+
+// FS Support : olive de la charte FS pour la notification de demande (jamais de bleu).
+private val FS_NOTIFY_OLIVE = 0xFF3A422D.toInt()
 
 const val MIME_TYPE = MediaFormat.MIMETYPE_VIDEO_VP9
 
@@ -122,22 +126,32 @@ class MainService : Service() {
                     val peerId = jsonObject["peer_id"] as String
                     val authorized = jsonObject["authorized"] as Boolean
                     val isFileTransfer = jsonObject["is_file_transfer"] as Boolean
+                    // FS Support : pas de capture d'écran pour un terminal, comme le dialogue Flutter
+                    // (sendLoginResponse) ; la carte native passe désormais par ce chemin.
+                    val isTerminal = jsonObject.optBoolean("is_terminal", false)
                     val type = if (isFileTransfer) {
                         translate("Transfer file")
                     } else {
                         translate("Share screen")
                     }
                     if (authorized) {
-                        if (!isFileTransfer && !isStart) {
+                        if (!isFileTransfer && !isTerminal && !isStart) {
                             startCapture()
                         }
                         onClientAuthorizedNotification(id, type, username, peerId)
                     } else {
-                        loginRequestNotification(id, type, username, peerId)
+                        val detail = loginRequestDetail(jsonObject)
+                        loginRequestNotification(id, username, peerId, detail)
+                        showLoginRequestOverlay(id, username, peerId, detail)
                     }
                 } catch (e: JSONException) {
                     e.printStackTrace()
                 }
+            }
+            "on_client_remove" -> {
+                // FS Support : la demande ou la session est terminée (refus, départ du
+                // demandeur, délai dépassé) : carte et notification retirées, même sans Flutter.
+                arg1.toIntOrNull()?.let { cancelNotification(it) }
             }
             "update_voice_call_state" -> {
                 try {
@@ -199,6 +213,17 @@ class MainService : Service() {
             get() = _isStart
         val isAudioStart: Boolean
             get() = _isAudioStart
+
+        // FS Support : service vivant, pour les boutons de la notification de demande
+        // (LoginRequestReceiver). Null hors de onCreate..onDestroy.
+        @Volatile
+        var running: MainService? = null
+            private set
+    }
+
+    // FS Support : carte « Demande de prise en main » par-dessus l'écran (LoginRequestOverlay.kt).
+    private val loginOverlay by lazy {
+        LoginRequestOverlay(this) { clientId, accept -> answerLoginRequest(clientId, accept) }
     }
 
     private val logTag = "LOG_SERVICE"
@@ -256,9 +281,14 @@ class MainService : Service() {
         FFI.startServer(configPath, homePath, "")
 
         createForegroundNotification()
+        running = this
     }
 
     override fun onDestroy() {
+        if (running === this) {
+            running = null
+        }
+        loginOverlay.release()
         checkMediaPermission()
         stopService(Intent(this, FloatingWindowService::class.java))
         super.onDestroy()
@@ -919,22 +949,93 @@ class MainService : Service() {
         }
     }
 
+    // FS Support : notification de demande avec boutons Accepter / Refuser (secours de la carte).
+    // Constructeur dédié : les boutons ne doivent pas rester sur notificationBuilder, partagé
+    // avec la notification du service et celle de session établie.
+    @SuppressLint("UnspecifiedImmutableFlag")
     private fun loginRequestNotification(
         clientID: Int,
-        type: String,
         username: String,
-        peerId: String
+        peerId: String,
+        detail: String
     ) {
-        val notification = notificationBuilder
+        val openApp = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+            action = Intent.ACTION_MAIN
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        val who = if (username.isBlank()) peerId else "$username ($peerId)"
+        val builder = NotificationCompat.Builder(this, notificationChannel)
+            .setSmallIcon(R.mipmap.ic_stat_logo)
+            .setColor(FS_NOTIFY_OLIVE)
             .setOngoing(false)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setDefaults(Notification.DEFAULT_ALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setContentTitle(translate("Do you accept?"))
-            .setContentText("$type:$username-$peerId")
-            // .setStyle(MediaStyle().setShowActionsInCompactView(0, 1))
-            // .addAction(R.drawable.check_blue, "check", genLoginRequestPendingIntent(true))
-            // .addAction(R.drawable.close_red, "close", genLoginRequestPendingIntent(false))
-            .build()
-        notificationManager.notify(getClientNotifyID(clientID), notification)
+            .setContentTitle("Demande de prise en main")
+            .setContentText("$who $detail")
+            .setContentIntent(PendingIntent.getActivity(this, 0, openApp, pendingIntentFlags()))
+            .setWhen(System.currentTimeMillis())
+        // Comme le dialogue Flutter : pas de bouton Accepter en mode « mot de passe seulement ».
+        if (FFI.canApproveByClick()) {
+            builder.addAction(
+                R.drawable.fs_ic_accepter,
+                "Accepter",
+                loginResponsePendingIntent(clientID, true)
+            )
+        }
+        builder.addAction(
+            R.drawable.fs_ic_refuser,
+            "Refuser",
+            loginResponsePendingIntent(clientID, false)
+        )
+        notificationManager.notify(getClientNotifyID(clientID), builder.build())
+    }
+
+    // FS Support : ce que veut le demandeur, pour la carte et la notification.
+    private fun loginRequestDetail(client: JSONObject): String {
+        return when {
+            client.optBoolean("is_file_transfer", false) -> "souhaite transférer des fichiers."
+            client.optBoolean("is_terminal", false) -> "souhaite ouvrir un terminal."
+            client.optBoolean("is_view_camera", false) -> "souhaite voir la caméra."
+            client.optString("port_forward", "").isNotEmpty() -> "souhaite ouvrir un tunnel réseau."
+            else -> "souhaite voir et contrôler cet écran."
+        }
+    }
+
+    // FS Support : carte par-dessus l'écran, seulement si l'autorisation de superposition est
+    // donnée et si une demande peut s'accepter d'un clic. Sans autorisation, la notification à
+    // boutons reste le seul recours hors de l'appli. Sur les ROM qui masquent le réglage :
+    //   adb shell appops set fr.fssolutions.support SYSTEM_ALERT_WINDOW allow
+    private fun showLoginRequestOverlay(clientID: Int, username: String, peerId: String, detail: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            Log.w(logTag, "FS Support : superposition non autorisée, carte de la demande $clientID non affichée")
+            return
+        }
+        if (!FFI.canApproveByClick()) {
+            return
+        }
+        loginOverlay.show(clientID, username, peerId, detail)
+    }
+
+    // FS Support : réponse venue de la carte ou d'un bouton de la notification. Passe par Rust
+    // (FFI.cmLoginResponse, comme bind.cmLoginRes côté Flutter), donc marche même quand
+    // l'activité Flutter est en arrière-plan ou détruite. Une demande acceptée revient par
+    // rustSetByName("add_connection") autorisée (capture + notification « établie ») ; une
+    // demande refusée revient par "on_client_remove".
+    fun answerLoginRequest(clientID: Int, accept: Boolean) {
+        loginOverlay.dismiss(clientID)
+        thread(name = "FsLoginResponse") {
+            try {
+                if (!FFI.cmLoginResponse(clientID, accept)) {
+                    Log.w(logTag, "FS Support : réponse ignorée, demande $clientID déjà traitée ou acceptation par clic interdite")
+                }
+            } catch (e: Exception) {
+                // Une exception levée dans le rappel rustSetByName ressort ici.
+                Log.w(logTag, "FS Support : réponse à la demande $clientID en échec", e)
+            }
+        }
     }
 
     private fun onClientAuthorizedNotification(
@@ -974,18 +1075,29 @@ class MainService : Service() {
 
     fun cancelNotification(clientID: Int) {
         notificationManager.cancel(getClientNotifyID(clientID))
+        // FS Support : demande traitée (dialogue Flutter, mot de passe, refus, départ) : plus de carte.
+        loginOverlay.dismiss(clientID)
     }
 
+    // FS Support : bouton Accepter / Refuser de la notification, reçu par LoginRequestReceiver.
+    // Un code par demande et par bouton, sinon Android réutiliserait le même PendingIntent.
     @SuppressLint("UnspecifiedImmutableFlag")
-    private fun genLoginRequestPendingIntent(res: Boolean): PendingIntent {
-        val intent = Intent(this, MainService::class.java).apply {
+    private fun loginResponsePendingIntent(clientID: Int, accept: Boolean): PendingIntent {
+        val intent = Intent(this, LoginRequestReceiver::class.java).apply {
             action = ACT_LOGIN_REQ_NOTIFY
-            putExtra(EXT_LOGIN_REQ_NOTIFY, res)
+            putExtra(EXT_LOGIN_REQ_CLIENT_ID, clientID)
+            putExtra(EXT_LOGIN_REQ_NOTIFY, accept)
         }
+        val requestCode = getClientNotifyID(clientID) * 2 + if (accept) 1 else 0
+        return PendingIntent.getBroadcast(this, requestCode, intent, pendingIntentFlags())
+    }
+
+    // FS Support : FLAG_IMMUTABLE n'existe qu'à partir d'Android 6.
+    private fun pendingIntentFlags(): Int {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.getService(this, 111, intent, FLAG_IMMUTABLE)
+            FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE
         } else {
-            PendingIntent.getService(this, 111, intent, FLAG_UPDATE_CURRENT)
+            FLAG_UPDATE_CURRENT
         }
     }
 

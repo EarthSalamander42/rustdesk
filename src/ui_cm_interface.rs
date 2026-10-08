@@ -393,6 +393,14 @@ pub fn remove(id: i32) {
     CLIENTS.write().unwrap().remove(&id);
 }
 
+/// FS Support : copie d'une connexion du gestionnaire, pour répondre à une demande
+/// depuis le service Android (`flutter::connection_manager::android_login_response`).
+#[inline]
+#[cfg(target_os = "android")]
+pub fn get_client(id: i32) -> Option<Client> {
+    CLIENTS.read().unwrap().get(&id).cloned()
+}
+
 // server mode send chat to peer
 #[inline]
 #[cfg(not(any(target_os = "ios")))]

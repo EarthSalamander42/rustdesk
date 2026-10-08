@@ -64,6 +64,12 @@ class ServerModel with ChangeNotifier {
 
   bool get clipboardOk => _clipboardOk;
 
+  // FS Support : autorisation « Afficher par-dessus les autres applis », nécessaire à la carte
+  // native « Demande de prise en main » (MainService.kt, LoginRequestOverlay.kt).
+  bool _overlayOk = true;
+
+  bool get overlayOk => _overlayOk;
+
   bool get showElevation => _showElevation;
 
   int get connectStatus => _connectStatus;
@@ -220,6 +226,24 @@ class ServerModel with ChangeNotifier {
     _clipboardOk = clipOption != 'N';
 
     notifyListeners();
+    await refreshOverlayPermission();
+  }
+
+  /// FS Support : relit l'autorisation de superposition (au retour des réglages système).
+  Future<void> refreshOverlayPermission() async {
+    if (!isAndroid) return;
+    final ok = await AndroidPermissionManager.check(kSystemAlertWindow);
+    if (ok != _overlayOk) {
+      _overlayOk = ok;
+      notifyListeners();
+    }
+  }
+
+  /// FS Support : ouvre le réglage système de la superposition, sur la fiche de l'appli.
+  /// Si la ROM masque ce réglage (boîtiers Android TV, Amlogic « Droidlogic ») :
+  ///   adb shell appops set fr.fssolutions.support SYSTEM_ALERT_WINDOW allow
+  void openOverlayPermissionSettings() {
+    AndroidPermissionManager.startAction(kActionManageOverlayPermission);
   }
 
   updatePasswordModel() async {

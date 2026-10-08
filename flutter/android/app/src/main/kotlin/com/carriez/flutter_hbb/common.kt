@@ -35,6 +35,8 @@ const val EXT_INIT_FROM_BOOT = "EXT_INIT_FROM_BOOT"
 const val EXT_MEDIA_PROJECTION_RES_INTENT = "MEDIA_PROJECTION_RES_INTENT"
 const val EXT_MEDIA_PROJECTION_RESULT_RECEIVER = "MEDIA_PROJECTION_RESULT_RECEIVER"
 const val EXT_LOGIN_REQ_NOTIFY = "LOGIN_REQ_NOTIFY"
+// FS Support : identifiant de connexion porté par les boutons de la notification de demande.
+const val EXT_LOGIN_REQ_CLIENT_ID = "LOGIN_REQ_CLIENT_ID"
 
 // Activity requestCode
 const val REQ_INVOKE_PERMISSION_ACTIVITY_MEDIA_PROJECTION = 101
@@ -105,6 +107,27 @@ fun startAction(context: Context, action: String) {
         })
     } catch (e: Exception) {
         e.printStackTrace()
+        if (action == ACTION_MANAGE_OVERLAY_PERMISSION) {
+            startOverlaySettingsFallback(context)
+        }
+    }
+}
+
+// FS Support : certaines ROM (boîtiers Android TV, Amlogic « Droidlogic ») n'ont pas la page par
+// appli de l'autorisation de superposition : liste générale, puis fiche de l'appli. Si tout est
+// masqué : adb shell appops set fr.fssolutions.support SYSTEM_ALERT_WINDOW allow
+private fun startOverlaySettingsFallback(context: Context) {
+    val intents = listOf(
+        Intent(ACTION_MANAGE_OVERLAY_PERMISSION),
+        Intent(ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.packageName)),
+    )
+    for (intent in intents) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (e: Exception) {
+            Log.w("common", "FS Support : réglage indisponible : ${intent.action}", e)
+        }
     }
 }
 

@@ -1515,6 +1515,16 @@ pub mod connection_manager {
         }
 
         fn remove_connection(&self, id: i32, close: bool) {
+            // FS Support : prévient aussi le service Android (carte par-dessus l'écran,
+            // notification de la demande), même quand l'interface Flutter est absente.
+            #[cfg(target_os = "android")]
+            if let Err(e) = call_main_service_set_by_name(
+                "on_client_remove",
+                Some(&id.to_string()),
+                Some(&close.to_string()),
+            ) {
+                log::debug!("call_main_service_set_by_name fail,{}", e);
+            }
             self.push_event(
                 "on_client_remove",
                 &[("id", &id.to_string()), ("close", &close.to_string())],
@@ -1611,6 +1621,47 @@ pub mod connection_manager {
             ui_handler: FlutterHandler {},
         };
         std::thread::spawn(move || start_listen(cm, rx, tx));
+    }
+
+    /// FS Support : réponse à une demande de prise en main venue du service Android (carte
+    /// par-dessus l'écran ou bouton de notification, `Java_ffi_FFI_cmLoginResponse`), sans
+    /// passer par le moteur Flutter. Même effet que le dialogue Flutter (`cm_login_res`).
+    /// Une connexion acceptée est ensuite republiée, comme RustDesk le fait quand le mot de
+    /// passe arrive après la demande : le service Android lance la capture et remplace la
+    /// notification, l'interface Flutter (si elle vit) ferme son dialogue.
+    /// Renvoie faux si la demande n'est plus en attente, ou si l'acceptation d'un clic est
+    /// interdite par le mode d'approbation.
+    #[cfg(target_os = "android")]
+    pub fn android_login_response(id: i32, accept: bool) -> bool {
+        let pending = crate::ui_cm_interface::get_client(id)
+            .map(|c| !c.authorized && !c.disconnected)
+            .unwrap_or(false);
+        if !pending {
+            log::info!("login response ignored, conn_id={} is not pending", id);
+            return false;
+        }
+        if !accept {
+            crate::ui_cm_interface::close(id);
+            return true;
+        }
+        if !android_click_approve_allowed() {
+            log::warn!("login accept refused by approve mode, conn_id={}", id);
+            return false;
+        }
+        crate::ui_cm_interface::authorize(id);
+        if let Some(client) = crate::ui_cm_interface::get_client(id) {
+            let handler = FlutterHandler {};
+            handler.add_connection(&client);
+        }
+        true
+    }
+
+    /// FS Support : une demande s'accepte d'un clic sauf en mode « mot de passe seulement »,
+    /// comme le bouton « Accepter » du dialogue Flutter (`approveMode != 'password'`).
+    #[cfg(target_os = "android")]
+    pub fn android_click_approve_allowed() -> bool {
+        use hbb_common::password_security::{approve_mode, ApproveMode};
+        approve_mode() != ApproveMode::Password
     }
 }
 

@@ -450,6 +450,9 @@ const kMobileDelaySoftKeyboardFocus = Duration(milliseconds: 30);
 const kActionApplicationDetailsSettings =
     "android.settings.APPLICATION_DETAILS_SETTINGS";
 const kActionAccessibilitySettings = "android.settings.ACCESSIBILITY_SETTINGS";
+// FS Support : réglage « Afficher par-dessus les autres applis » (carte de demande de prise en main).
+const kActionManageOverlayPermission =
+    "android.settings.action.MANAGE_OVERLAY_PERMISSION";
 
 const kRecordAudio = "android.permission.RECORD_AUDIO";
 const kRequestIgnoreBatteryOptimizations =

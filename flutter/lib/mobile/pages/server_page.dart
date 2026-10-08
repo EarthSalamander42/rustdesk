@@ -188,6 +188,8 @@ class _ServerPageState extends State<ServerPage> {
     super.initState();
     _updateTimer = periodic_immediate(const Duration(seconds: 3), () async {
       await gFFI.serverModel.fetchID();
+      // FS Support : suit l'autorisation de superposition au retour des réglages système.
+      await gFFI.serverModel.refreshOverlayPermission();
     });
     gFFI.serverModel.checkAndroidPermission();
   }
@@ -618,6 +620,13 @@ class _PermissionCheckerState extends State<PermissionChecker> {
             serverModel.inputOk,
             serverModel.toggleInput,
           ),
+          // FS Support : carte « Demande de prise en main » par-dessus les autres applis.
+          if (isAndroid)
+            PermissionRow(
+              'Afficher par-dessus les applis',
+              serverModel.overlayOk,
+              serverModel.openOverlayPermissionSettings,
+            ),
           PermissionRow(
             translate("Transfer file"),
             serverModel.fileOk,
