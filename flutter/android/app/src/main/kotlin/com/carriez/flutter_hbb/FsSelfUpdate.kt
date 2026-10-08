@@ -151,8 +151,10 @@ object FsSelfUpdate {
             putExtra(Intent.EXTRA_RETURN_RESULT, false)
         }
         return try {
-            // La fenetre de l'installateur va s'ouvrir : on l'autorise a etre validee automatiquement.
+            // La fenetre de l'installateur va s'ouvrir : on l'autorise a etre validee automatiquement
+            // et on demarre le poller du service d'accessibilite tout de suite (meme processus).
             FsClientScreen.markInstallConsentWindow()
+            InputService.ctx?.fsOnConsentWindowOpened()
             context.startActivity(intent)
             Log.i(logTag, "FS Support : installateur de mise a jour lance")
             true

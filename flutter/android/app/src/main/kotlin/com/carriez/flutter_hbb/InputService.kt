@@ -169,6 +169,8 @@ class InputService : AccessibilityService() {
     // FS Support (mode Ecran client) : anti-rafale des clics automatiques et étape d'installation en cours.
     @Volatile private var fsLastAutoClick = 0L
     @Volatile private var fsInstallClicked = false
+    // FS Support : le poller de consentement tourne-t-il déjà ? (évite de l'empiler)
+    @Volatile private var fsConsentPollerArmed = false
     // FS Support : seuil de glissement en pixels d'écran, 8 dp comme ViewConfiguration
     private val fsTouchSlop: Int by lazy { max(8, (8 * resources.displayMetrics.density).toInt()) }
 
@@ -1126,15 +1128,11 @@ class InputService : AccessibilityService() {
         if (!FsClientScreen.isEnabled(applicationContext)) {
             return
         }
-        // Les recherches de nœuds peuvent bloquer : on les déporte sur le fil de secours.
-        fsRunFallback {
-            if (FsClientScreen.captureConsentActive()) {
-                fsAutoConfirmCapture()
-            }
-            if (FsClientScreen.installConsentActive()) {
-                fsAutoConfirmInstall()
-            }
-        }
+        // Un évènement signale qu'une fenêtre système a bougé : on (re)lance le poller, qui
+        // rescanne régulièrement tant qu'une fenêtre de consentement est ouverte. Les évènements
+        // sont trop épars (la fenêtre de consentement peut apparaître sans nouvel évènement, ou son
+        // contenu n'est pas encore prêt au moment de l'évènement) pour s'y fier en une seule passe.
+        fsArmConsentPoller()
     }
 
     // FS Support : clic positif automatique sur la fenêtre de consentement de capture (MediaProjection).
@@ -1211,28 +1209,54 @@ class InputService : AccessibilityService() {
         }
     }
 
-    // FS Support : vérifications différées, pour une fenêtre de consentement déjà ouverte au moment
-    // où le service se lie (aucun évènement ne la signalerait). Ne fait rien hors mode Ecran client
-    // ou hors fenêtre de temps.
-    private fun fsKickConsentChecks() {
+    // FS Support : appelé par l'app (même processus) juste après l'ouverture d'une fenêtre de
+    // consentement (capture ou installateur), pour démarrer le poller sans attendre un évènement
+    // d'accessibilité. Sûr à appeler depuis n'importe quel fil (le poller poste sur son handler).
+    fun fsOnConsentWindowOpened() {
+        try {
+            fsArmConsentPoller()
+        } catch (e: Exception) {
+            Log.w(logTag, "FS Support : armement du poller depuis l'app en échec : $e")
+        }
+    }
+
+    // FS Support : poller qui rescanne régulièrement tant qu'une fenêtre de consentement (capture
+    // ou installateur) est ouverte, en mode Ecran client. Robuste aux évènements épars et au contenu
+    // de fenêtre pas encore prêt. Démarré par un évènement de fenêtre ou à la liaison du service ;
+    // s'arrête tout seul dès qu'aucune fenêtre n'est active.
+    private fun fsArmConsentPoller() {
         val handler = fsFallbackHandler ?: return
-        for (delay in longArrayOf(300L, 1200L, 2500L, 5000L)) {
-            handler.postDelayed({
+        if (fsConsentPollerArmed) {
+            return
+        }
+        if (!FsClientScreen.captureConsentActive() && !FsClientScreen.installConsentActive()) {
+            return
+        }
+        fsConsentPollerArmed = true
+        handler.post(object : Runnable {
+            override fun run() {
                 try {
-                    if (!FsClientScreen.isEnabled(applicationContext)) {
-                        return@postDelayed
-                    }
-                    if (FsClientScreen.captureConsentActive()) {
-                        fsAutoConfirmCapture()
-                    }
-                    if (FsClientScreen.installConsentActive()) {
-                        fsAutoConfirmInstall()
+                    if (FsClientScreen.isEnabled(applicationContext)) {
+                        if (FsClientScreen.captureConsentActive()) {
+                            fsAutoConfirmCapture()
+                        }
+                        if (FsClientScreen.installConsentActive()) {
+                            fsAutoConfirmInstall()
+                        }
                     }
                 } catch (e: Exception) {
-                    Log.w(logTag, "FS Support : vérification différée du consentement en échec : $e")
+                    Log.w(logTag, "FS Support : poller consentement en échec : $e")
                 }
-            }, delay)
-        }
+                val handler2 = fsFallbackHandler
+                if (handler2 != null &&
+                    (FsClientScreen.captureConsentActive() || FsClientScreen.installConsentActive())
+                ) {
+                    handler2.postDelayed(this, 700L)
+                } else {
+                    fsConsentPollerArmed = false
+                }
+            }
+        })
     }
 
     private fun fsReadyForAutoClick(): Boolean =
@@ -1398,8 +1422,8 @@ class InputService : AccessibilityService() {
         }
         // FS Support (mode Ecran client) : le service peut se (re)lier APRES qu'une fenêtre de
         // consentement est déjà affichée (boot, redémarrage du service) — aucun évènement ne serait
-        // alors émis pour cette fenêtre déjà ouverte. On lance donc quelques vérifications différées.
-        fsKickConsentChecks()
+        // alors émis pour cette fenêtre déjà ouverte. On arme donc le poller tout de suite.
+        fsArmConsentPoller()
         fakeEditTextForTextStateCalculation = EditText(this)
         // Size here doesn't matter, we won't show this view.
         fakeEditTextForTextStateCalculation?.layoutParams = LayoutParams(100, 100)

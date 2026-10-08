@@ -33,6 +33,9 @@ class PermissionRequestTransparentActivity: Activity() {
                 // courte. Aucun effet hors de ce mode (la fenêtre reste simplement ouverte).
                 if (FsClientScreen.isEnabled(this)) {
                     FsClientScreen.markCaptureConsentWindow()
+                    // Démarre le poller du service d'accessibilité tout de suite (même processus),
+                    // sans attendre un évènement : il validera la fenêtre dès qu'elle est prête.
+                    InputService.ctx?.fsOnConsentWindowOpened()
                 }
                 startActivityForResult(intent, REQ_REQUEST_MEDIA_PROJECTION)
             }
