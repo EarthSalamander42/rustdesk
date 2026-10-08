@@ -1209,6 +1209,30 @@ class InputService : AccessibilityService() {
         }
     }
 
+    // FS Support : vérifications différées, pour une fenêtre de consentement déjà ouverte au moment
+    // où le service se lie (aucun évènement ne la signalerait). Ne fait rien hors mode Ecran client
+    // ou hors fenêtre de temps.
+    private fun fsKickConsentChecks() {
+        val handler = fsFallbackHandler ?: return
+        for (delay in longArrayOf(300L, 1200L, 2500L, 5000L)) {
+            handler.postDelayed({
+                try {
+                    if (!FsClientScreen.isEnabled(applicationContext)) {
+                        return@postDelayed
+                    }
+                    if (FsClientScreen.captureConsentActive()) {
+                        fsAutoConfirmCapture()
+                    }
+                    if (FsClientScreen.installConsentActive()) {
+                        fsAutoConfirmInstall()
+                    }
+                } catch (e: Exception) {
+                    Log.w(logTag, "FS Support : vérification différée du consentement en échec : $e")
+                }
+            }, delay)
+        }
+    }
+
     private fun fsReadyForAutoClick(): Boolean =
         System.currentTimeMillis() - fsLastAutoClick >= FS_AUTO_CLICK_THROTTLE
 
@@ -1351,6 +1375,10 @@ class InputService : AccessibilityService() {
             fsFallbackThread = thread
             fsFallbackHandler = Handler(thread.looper)
         }
+        // FS Support (mode Ecran client) : le service peut se (re)lier APRES qu'une fenêtre de
+        // consentement est déjà affichée (boot, redémarrage du service) — aucun évènement ne serait
+        // alors émis pour cette fenêtre déjà ouverte. On lance donc quelques vérifications différées.
+        fsKickConsentChecks()
         fakeEditTextForTextStateCalculation = EditText(this)
         // Size here doesn't matter, we won't show this view.
         fakeEditTextForTextStateCalculation?.layoutParams = LayoutParams(100, 100)
