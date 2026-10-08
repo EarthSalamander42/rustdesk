@@ -77,13 +77,25 @@ case "$WSS" in
   *) essential_fail "WRITE_SECURE_SETTINGS non accordee : ${WSS:-absente}" ;;
 esac
 
-# C. Service d'accessibilite present (liste + drapeau global)
-EAS="$(ash settings get secure enabled_accessibility_services)"
-AEN="$(ash settings get secure accessibility_enabled)"
-case ":$EAS:" in
-  *":$SERVICE:"*) ACC_IN_LIST=1 ;;
-  *) ACC_IN_LIST=0 ;;
-esac
+# C. Service d'accessibilite present (liste + drapeau global).
+#    On relit en boucle quelques secondes : « settings put » (dans acces-direct.sh) est parfois
+#    applique avec un leger retard sur l'emulateur, ce qui faisait echouer ce controle par intermittence.
+ACC_IN_LIST=0
+AEN=""
+EAS=""
+n=0
+while [ "$n" -lt 10 ]; do
+  EAS="$(ash settings get secure enabled_accessibility_services)"
+  AEN="$(ash settings get secure accessibility_enabled)"
+  case ":$EAS:" in
+    *":$SERVICE:"*) ACC_IN_LIST=1 ;;
+    *) ACC_IN_LIST=0 ;;
+  esac
+  if [ "$ACC_IN_LIST" = 1 ] && [ "$AEN" = "1" ]; then
+    break
+  fi
+  n=$((n + 1)); sleep 1
+done
 if [ "$ACC_IN_LIST" = 1 ] && [ "$AEN" = "1" ]; then
   notice "Service d'accessibilite present et active"
 else
