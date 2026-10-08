@@ -227,7 +227,9 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
         byCompany: fsGroupByCompany.value,
         onByCompany: company ? () => fsSetGroupByCompany(!fsGroupByCompany.value) : null,
         listView: peerCardUiType.value == PeerUiType.list,
+        tileView: peerCardUiType.value == PeerUiType.tile,
         onList: () => _setUiType(PeerUiType.list),
+        onTiles: () => _setUiType(PeerUiType.tile),
         onCards: () => _setUiType(PeerUiType.grid),
         onSort: _sortMenu,
         extra: [
