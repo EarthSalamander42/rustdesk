@@ -230,7 +230,12 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
         onList: () => _setUiType(PeerUiType.list),
         onCards: () => _setUiType(PeerUiType.grid),
         onSort: _sortMenu,
-        extra: const [],
+        extra: [
+          if (company && fsGroupByCompany.value) ...[
+            const FsChip(label: 'Entreprises…', icon: Icons.edit_note_rounded, onPressed: fsManageCompaniesDialog),
+            const SizedBox(width: 6),
+          ],
+        ],
       ));
 
   Widget _peersPanel({required String title, required Widget sub, required Widget view, bool company = false, Widget? empty, Peers? source}) {
