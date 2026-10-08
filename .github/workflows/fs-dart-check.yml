@@ -48,35 +48,19 @@ jobs:
           (cd flutter/packages/fs_ui && flutter pub get) > /dev/null || { echo '::error::flutter pub get (fs_ui) en échec'; exit 1; }
           (cd flutter && flutter pub get) > /dev/null || { echo '::error::flutter pub get en échec'; exit 1; }
           # Ressources déclarées par fs_ui : le .gitignore racine ignore *png, un oubli casse flutter_assemble.
-          for d in $(grep -oE '^    - assets/[^ ]+/          : > errors.txt
-          (cd flutter && dart analyze --format=machine lib 2>&1 || true) | grep '^ERROR|' | sed 's#^#flutter/#' >> errors.txt || true
-          (cd flutter/packages/fs_ui && dart analyze --format=machine lib 2>&1 || true) | grep '^ERROR|' | sed 's#^#flutter/packages/fs_ui/#' >> errors.txt || true
-          n=$(wc -l < errors.txt)
-          echo "Erreurs Dart : $n"
-          if [ "$n" -eq 0 ]; then exit 0; fi
-          # Format machine : SEVERITE|TYPE|CODE|FICHIER|LIGNE|COLONNE|LONGUEUR|MESSAGE (préfixé du dossier)
-          ws="$GITHUB_WORKSPACE/"
-          head -n 9 errors.txt | while IFS='|' read -r pre _ code file line col _ msg; do
-            f="${file#$ws}"
-            echo "::error file=${f},line=${line},col=${col}::${code}: ${msg}"
-          done
-          all=$(head -n 80 errors.txt | awk -F'|' -v ws="$ws" '{f=$4; sub(ws,"",f); m=$8; for(i=9;i<=NF;i++) m=m"|"$i; printf "%s:%s:%s %s %s%%0A", f, $5, $6, $3, m}')
-          echo "::error title=FS Dart (${n} erreurs)::${all}"
-          exit 1
- flutter/packages/fs_ui/pubspec.yaml | sed 's/^    - //'); do
-            [ -n "$(git ls-files flutter/packages/fs_ui/$d)" ] || { echo "::error file=flutter/packages/fs_ui/pubspec.yaml::dossier $d vide ou non versionné"; exit 1; }
+          for d in $(sed -n 's#^    - \(assets/.*/\)$#\1#p' flutter/packages/fs_ui/pubspec.yaml); do
+            [ -n "$(git ls-files "flutter/packages/fs_ui/$d")" ] || { echo "::error file=flutter/packages/fs_ui/pubspec.yaml::dossier $d vide ou non versionné"; exit 1; }
           done
           : > errors.txt
-          (cd flutter && dart analyze --format=machine lib 2>&1 || true) | grep '^ERROR|' | sed 's#^#flutter/#' >> errors.txt || true
-          (cd flutter/packages/fs_ui && dart analyze --format=machine lib 2>&1 || true) | grep '^ERROR|' | sed 's#^#flutter/packages/fs_ui/#' >> errors.txt || true
+          (cd flutter && dart analyze --format=machine lib 2>&1 || true) | grep '^ERROR|' >> errors.txt || true
+          (cd flutter/packages/fs_ui && dart analyze --format=machine lib 2>&1 || true) | grep '^ERROR|' >> errors.txt || true
           n=$(wc -l < errors.txt)
           echo "Erreurs Dart : $n"
           if [ "$n" -eq 0 ]; then exit 0; fi
-          # Format machine : SEVERITE|TYPE|CODE|FICHIER|LIGNE|COLONNE|LONGUEUR|MESSAGE (préfixé du dossier)
+          # Format machine : SEVERITE|TYPE|CODE|FICHIER|LIGNE|COLONNE|LONGUEUR|MESSAGE
           ws="$GITHUB_WORKSPACE/"
-          head -n 9 errors.txt | while IFS='|' read -r pre _ code file line col _ msg; do
-            f="${file#$ws}"
-            echo "::error file=${f},line=${line},col=${col}::${code}: ${msg}"
+          head -n 9 errors.txt | while IFS='|' read -r _ _ code file line col _ msg; do
+            echo "::error file=${file#$ws},line=${line},col=${col}::${code}: ${msg}"
           done
           all=$(head -n 80 errors.txt | awk -F'|' -v ws="$ws" '{f=$4; sub(ws,"",f); m=$8; for(i=9;i<=NF;i++) m=m"|"$i; printf "%s:%s:%s %s %s%%0A", f, $5, $6, $3, m}')
           echo "::error title=FS Dart (${n} erreurs)::${all}"
