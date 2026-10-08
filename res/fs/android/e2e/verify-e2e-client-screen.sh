@@ -152,6 +152,10 @@ if [ "$CAPOK" = 1 ]; then
     warn "Une fenetre MediaProjectionPermission subsiste apres validation : '$WIN'"
   fi
 else
+  # Diagnostic : on remonte les traces « FS Support » du service pour comprendre (fenetre vue ?
+  # libelle absent ? textes reels de la fenetre ?), lisibles en annotations sans compte.
+  adb logcat -d 2>/dev/null | grep -F "FS Support" | grep -iE "capture|consentement|Tout l|libelle" \
+    | tail -n 6 | while IFS= read -r l; do warn "LOG ${l##*FS Support }"; done
   essential_fail "Capture NON active apres boot : le consentement n'a pas ete valide automatiquement (fenetre='${WIN:-aucune}')"
 fi
 

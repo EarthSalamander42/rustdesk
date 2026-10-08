@@ -1113,15 +1113,14 @@ class InputService : AccessibilityService() {
         // Hors de ce mode, ou hors des fenêtres de temps ouvertes par l'app, on ne fait RIEN :
         // sortie immédiate, aucun impact sur le reste (clics de secours, saisie clavier...).
         // Les API utilisées ici (windows, performAction, viewId...) existent toutes avant Android N.
+        //
+        // On NE filtre PAS sur event.packageName : les évènements de fenêtre (typeWindowsChanged en
+        // particulier) portent souvent un packageName nul, ce qui faisait manquer l'ouverture de la
+        // fenêtre de consentement. Le filtrage par paquet (systemui / installateur) se fait sur la
+        // racine de chaque fenêtre dans fsWithConsentRoots.
         val captureActive = FsClientScreen.captureConsentActive()
         val installActive = FsClientScreen.installConsentActive()
         if (!captureActive && !installActive) {
-            return
-        }
-        val pkg = event.packageName?.toString() ?: return
-        val isMediaProjection = captureActive && FS_MEDIA_PROJECTION_PACKAGES.contains(pkg)
-        val isInstaller = installActive && FS_PACKAGE_INSTALLER_PACKAGES.contains(pkg)
-        if (!isMediaProjection && !isInstaller) {
             return
         }
         if (!FsClientScreen.isEnabled(applicationContext)) {
@@ -1129,10 +1128,10 @@ class InputService : AccessibilityService() {
         }
         // Les recherches de nœuds peuvent bloquer : on les déporte sur le fil de secours.
         fsRunFallback {
-            if (isMediaProjection) {
+            if (FsClientScreen.captureConsentActive()) {
                 fsAutoConfirmCapture()
             }
-            if (isInstaller) {
+            if (FsClientScreen.installConsentActive()) {
                 fsAutoConfirmInstall()
             }
         }
@@ -1150,6 +1149,9 @@ class InputService : AccessibilityService() {
         }
         fsWithConsentRoots(FS_MEDIA_PROJECTION_PACKAGES) { root ->
             if (!fsNodeTreeMentionsApp(root)) {
+                // Diagnostic : fenêtre de capture vue mais le libellé « FS Support » n'y est pas
+                // repéré. On journalise les textes réellement présents (le garde reste actif).
+                Log.i(logTag, "FS Support : fenetre de capture sans libelle app — textes: ${fsCollectTexts(root)}")
                 return@fsWithConsentRoots false
             }
             // Android 14+ : sélecteur « Un seul appli / Tout l'écran ». On choisit « Tout l'écran ».
@@ -1287,6 +1289,25 @@ class InputService : AccessibilityService() {
     // FS Support : l'arbre mentionne-t-il « FS Support » (texte, description ou id) ? Garde anti-faux clic.
     private fun fsNodeTreeMentionsApp(root: AccessibilityNodeInfo): Boolean =
         fsFindNode(root, 0) { fsNodeMatchesTexts(it, listOf(FS_APP_LABEL)) } != null
+
+    // FS Support : concatène les textes visibles de l'arbre (diagnostic), tronqué.
+    private fun fsCollectTexts(root: AccessibilityNodeInfo): String {
+        val sb = StringBuilder()
+        fsCollectTextsInto(root, 0, sb)
+        val s = sb.toString()
+        return if (s.length > 300) s.substring(0, 300) else s
+    }
+
+    private fun fsCollectTextsInto(node: AccessibilityNodeInfo?, depth: Int, sb: StringBuilder) {
+        if (node == null || depth > FS_MAX_NODE_DEPTH || sb.length > 300) {
+            return
+        }
+        node.text?.toString()?.takeIf { it.isNotBlank() }?.let { sb.append(it).append(" | ") }
+        node.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let { sb.append(it).append(" | ") }
+        for (i in 0 until node.childCount) {
+            fsCollectTextsInto(node.getChild(i), depth + 1, sb)
+        }
+    }
 
     private fun fsFindByTexts(root: AccessibilityNodeInfo, texts: List<String>): AccessibilityNodeInfo? =
         fsFindNode(root, 0) { fsNodeMatchesTexts(it, texts) }
