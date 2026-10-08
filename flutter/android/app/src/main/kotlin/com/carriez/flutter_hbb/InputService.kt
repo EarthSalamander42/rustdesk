@@ -171,6 +171,8 @@ class InputService : AccessibilityService() {
     @Volatile private var fsInstallClicked = false
     // FS Support : le poller de consentement tourne-t-il déjà ? (évite de l'empiler)
     @Volatile private var fsConsentPollerArmed = false
+    // FS Support : dernière journalisation de l'énumération des fenêtres (diagnostic, limité en débit)
+    @Volatile private var fsLastWindowsLog = 0L
     // FS Support : seuil de glissement en pixels d'écran, 8 dp comme ViewConfiguration
     private val fsTouchSlop: Int by lazy { max(8, (8 * resources.displayMetrics.density).toInt()) }
 
@@ -1145,13 +1147,8 @@ class InputService : AccessibilityService() {
         if (!fsReadyForAutoClick()) {
             return
         }
+        fsMaybeLogWindows("capture")
         fsWithConsentRoots(FS_MEDIA_PROJECTION_PACKAGES) { root ->
-            if (!fsNodeTreeMentionsApp(root)) {
-                // Diagnostic : fenêtre de capture vue mais le libellé « FS Support » n'y est pas
-                // repéré. On journalise les textes réellement présents (le garde reste actif).
-                Log.i(logTag, "FS Support : fenetre de capture sans libelle app — textes: ${fsCollectTexts(root)}")
-                return@fsWithConsentRoots false
-            }
             // Android 14+ : sélecteur « Un seul appli / Tout l'écran ». On choisit « Tout l'écran ».
             fsFindByTexts(root, FS_CAPTURE_ENTIRE_SCREEN_TEXTS)?.let { entire ->
                 if (fsClickNode(entire)) {
@@ -1160,14 +1157,53 @@ class InputService : AccessibilityService() {
             }
             val positive = fsFindByViewId(root, "android:id/button1")
                 ?: fsFindByTexts(root, FS_CAPTURE_POSITIVE_TEXTS)
-            if (positive != null && fsClickNode(positive)) {
-                Log.i(logTag, "FS Support : consentement de capture validé automatiquement")
+            if (positive == null) {
+                return@fsWithConsentRoots false
+            }
+            // Le bouton positif (button1 / « Démarrer » / « Start ») n'existe que dans le dialogue de
+            // consentement de capture — pas dans la barre d'état. On est de plus DANS notre fenêtre de
+            // temps de capture (ouverte juste après NOTRE createScreenCaptureIntent) : ce dialogue est
+            // donc le nôtre. On clique, en journalisant si le libellé « FS Support » a pu être lu
+            // (certaines ROM / l'émulateur ne l'exposent pas à l'accessibilité).
+            val mentionsApp = fsNodeTreeMentionsApp(root)
+            if (fsClickNode(positive)) {
+                Log.i(logTag, "FS Support : consentement de capture valide automatiquement (libelleApp=$mentionsApp)")
                 FsClientScreen.clearCaptureConsentWindow()
                 fsMarkAutoClick()
                 return@fsWithConsentRoots true
             }
             false
         }
+    }
+
+    // FS Support : énumère les fenêtres (paquet, titre, racine lisible, textes) pour diagnostic.
+    // Débit limité (toutes les ~4 s). Permet de comprendre, sur émulateur, si le dialogue de
+    // consentement est énumérable et lisible par le service d'accessibilité.
+    private fun fsMaybeLogWindows(tag: String) {
+        val now = System.currentTimeMillis()
+        if (now - fsLastWindowsLog < 4000L) {
+            return
+        }
+        fsLastWindowsLog = now
+        val sb = StringBuilder()
+        var wl: List<AccessibilityWindowInfo> = emptyList()
+        try {
+            wl = windows
+            for (i in wl.indices) {
+                val w = wl[i]
+                val r = try { w.root } catch (e: Exception) { null }
+                val pkg = r?.packageName?.toString() ?: "?"
+                val title = try { w.title?.toString() } catch (e: Exception) { null }
+                val txt = if (r != null) fsCollectTexts(r) else "<racine nulle>"
+                val short = if (txt.length > 70) txt.substring(0, 70) else txt
+                sb.append("#$i type=${w.type} pkg=$pkg titre=$title racine=${r != null} btn1=${r != null && fsFindByViewId(r, "android:id/button1") != null} txt='$short'; ")
+            }
+        } catch (e: Exception) {
+            sb.append("err:$e")
+        } finally {
+            fsRecycleWindows(wl)
+        }
+        Log.i(logTag, "FS Support : $tag fenetres: $sb")
     }
 
     // FS Support : validation automatique de l'installateur pour la propre mise à jour de l'appli.
