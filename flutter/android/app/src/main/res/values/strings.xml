@@ -2,4 +2,5 @@
     <string name="app_name">FS Support</string>
     <string name="accessibility_service_name">FS Support Input</string>
     <string name="accessibility_service_description">Autorise le controle tactile a distance lorsqu\'une session FS Support est etablie.</string>
+    <string name="foreground_service_special_use_subtype">Garde l\'hote FS Support disponible pour les connexions autorisees sans surveillance et les notifications, sans demarrer la capture d\'ecran avant l\'accord de l\'utilisateur.</string>
 </resources>

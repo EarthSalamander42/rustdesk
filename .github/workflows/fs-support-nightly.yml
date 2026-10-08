@@ -9,24 +9,55 @@ permissions:
   contents: write
 
 jobs:
+  # Version unique par build : <majeur>.<mineur>.<numéro de run> (ex. 1.0.104).
+  # Majeur et mineur viennent de FS_SUPPORT_BASE_VERSION (1.0 par défaut) ; le numéro de run
+  # augmente à chaque exécution, ce qui rend la mise à jour automatique des clients possible.
+  # Le format reste x.y.z pour get_version_number (Rust) et les versions Windows/Android.
+  prepare-fs-support-version:
+    name: Prepare FS Support version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      FS_SUPPORT_BASE_VERSION: ${{ vars.FS_SUPPORT_BASE_VERSION || '1.0.0' }}
+      RUN_NUMBER: ${{ github.run_number }}
+    steps:
+      - name: Compute version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${FS_SUPPORT_BASE_VERSION:-1.0.0}"
+          MAJOR="$(printf '%s' "$BASE" | cut -d. -f1 | tr -cd '0-9')"
+          MINOR="$(printf '%s' "$BASE" | cut -s -d. -f2 | tr -cd '0-9')"
+          VERSION="${MAJOR:-1}.${MINOR:-0}.${RUN_NUMBER}"
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Version FS Support invalide : $VERSION" >&2
+            exit 1
+          fi
+          echo "FS Support version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   run-fs-support-build:
+    needs: prepare-fs-support-version
     uses: ./.github/workflows/flutter-build.yml
     secrets: inherit
     with:
       upload-artifact: true
       upload-tag: "fs-nightly"
       build-scope: "fs-support"
+      fs-version: ${{ needs.prepare-fs-support-version.outputs.version }}
 
   normalize-fs-support-release:
     name: Normalize FS Support release assets
-    needs: run-fs-support-build
+    needs: [prepare-fs-support-version, run-fs-support-build]
     # Publier les plateformes réussies même si une autre (ex. AppImage Linux) a échoué.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: fs-nightly
-      FS_SUPPORT_BASE_VERSION: ${{ vars.FS_SUPPORT_BASE_VERSION || '1.0.0' }}
+      FS_SUPPORT_VERSION: ${{ needs.prepare-fs-support-version.outputs.version }}
     steps:
       - name: Checkout source with submodules
         uses: actions/checkout@v6
@@ -37,9 +68,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE_VERSION="${FS_SUPPORT_BASE_VERSION:-1.0.0}"
+          VERSION="${FS_SUPPORT_VERSION:-}"
+          if [[ -z "$VERSION" ]]; then
+            echo "Version FS Support absente (job prepare-fs-support-version)." >&2
+            exit 1
+          fi
           SHORT_SHA="${GITHUB_SHA::12}"
-          VERSION="${BASE_VERSION}"
           echo "Normalizing FS Support release assets as version ${VERSION} from build ${SHORT_SHA}"
           WORK_DIR="$(mktemp -d)"
           RAW_DIR="$WORK_DIR/raw"
@@ -63,12 +97,15 @@ jobs:
             return 0
           }
 
-          copy_first "fs-support-${VERSION}-windows-x86_64.exe" "rustdesk-*x86_64.exe" "*windows*x86_64*.exe"
-          copy_first "fs-support-${VERSION}-windows-x86_64.msi" "rustdesk-*x86_64.msi" "*windows*x86_64*.msi"
-          copy_first "fs-support-${VERSION}-macos-x86_64.dmg" "rustdesk-*x86_64*.dmg" "*macos*x86_64*.dmg" "*intel*.dmg"
-          copy_first "fs-support-${VERSION}-macos-aarch64.dmg" "rustdesk-*aarch64*.dmg" "*macos*aarch64*.dmg" "*apple*.dmg" "*arm64*.dmg"
+          # Uniquement les fichiers bruts de CE build (rustdesk-<version>-…) : un ancien
+          # fs-support-<version précédente>-… ne doit jamais être republié sous le nouveau numéro,
+          # sinon les clients verraient une « mise à jour » qui réinstalle l'ancienne version.
+          copy_first "fs-support-${VERSION}-windows-x86_64.exe" "rustdesk-${VERSION}-*x86_64.exe"
+          copy_first "fs-support-${VERSION}-windows-x86_64.msi" "rustdesk-${VERSION}-*x86_64.msi"
+          copy_first "fs-support-${VERSION}-macos-x86_64.dmg" "rustdesk-${VERSION}-*x86_64*.dmg"
+          copy_first "fs-support-${VERSION}-macos-aarch64.dmg" "rustdesk-${VERSION}-*aarch64*.dmg"
           # Linux n'est plus distribué (06/10/2026) : ni .deb ni AppImage (l'ancienne AppImage était republiée sous le nouveau nom).
-          copy_first "fs-support-${VERSION}-android-universal.apk" "rustdesk-*universal*.apk" "*android*universal*.apk"
+          copy_first "fs-support-${VERSION}-android-universal.apk" "rustdesk-${VERSION}-*universal*.apk"
 
           tar --exclude-vcs --exclude="$WORK_DIR" -czf "$OUT_DIR/fs-support-${VERSION}-source.tar.gz" .
 

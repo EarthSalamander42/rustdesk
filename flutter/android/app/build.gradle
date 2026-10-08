@@ -83,11 +83,11 @@ protobuf {
 
 android {
     namespace "com.carriez.flutter_hbb"
-    compileSdkVersion 35
+    compileSdkVersion 36
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
 
-        main.proto.srcDirs += '../../../libs/hbb_common/protos'
+        main.proto.srcDirs += '../../../libs/base/protos'
         main.proto.includes += "message.proto"
     }
 
@@ -100,7 +100,7 @@ android {
     defaultConfig {
         applicationId "fr.fssolutions.support"
         minSdkVersion 22
-        targetSdkVersion 35
+        targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
     }

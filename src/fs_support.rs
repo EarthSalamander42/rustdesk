@@ -73,3 +73,126 @@ pub fn windows_install_version_parts() -> Vec<String> {
         .map(|part| part.trim().to_owned())
         .collect()
 }
+
+// ---------------------------------------------------------------------------
+// Mise à jour automatique FS Support (07/10/2026).
+//
+// Un client FS Support n'interroge jamais api.rustdesk.com : il demande la dernière version
+// publiée (release GitHub `fs-nightly`, relayée par le SaaS) à api.fs-solutions.fr, qui répond
+// `{ "version": "1.0.104", "url": "<lien de téléchargement direct>" }`.
+// L'URL reçue est un lien direct vers le fichier (pas une page GitHub « releases/tag/x ») :
+// la version et le nom du fichier local se déduisent donc d'ici, jamais de l'URL.
+// ---------------------------------------------------------------------------
+
+/// Point d'entrée de la vérification de version côté SaaS.
+pub const UPDATE_CHECK_URL: &str = "https://api.fs-solutions.fr/public/support/rustdesk-version";
+
+/// Seules les URLs de téléchargement servies par FS Solutions sont acceptées.
+const UPDATE_DOWNLOAD_URL_PREFIX: &str = "https://api.fs-solutions.fr/";
+
+lazy_static::lazy_static! {
+    /// Dernière version proposée par api.fs-solutions.fr (vide si aucune mise à jour).
+    static ref LATEST_UPDATE_VERSION: std::sync::Mutex<String> = Default::default();
+}
+
+/// Plateforme transmise au SaaS : windows, macos, android (linux/ios ne sont pas distribués).
+pub fn update_platform() -> &'static str {
+    std::env::consts::OS
+}
+
+/// Architecture transmise au SaaS : x86_64, aarch64, arm, x86.
+pub fn update_arch() -> &'static str {
+    std::env::consts::ARCH
+}
+
+/// Construit l'URL de vérification, paramètres encodés.
+pub fn update_check_url() -> String {
+    let current = product_version();
+    match url::Url::parse_with_params(
+        UPDATE_CHECK_URL,
+        &[
+            ("platform", update_platform()),
+            ("arch", update_arch()),
+            ("version", current.as_str()),
+        ],
+    ) {
+        Ok(u) => u.to_string(),
+        Err(_) => UPDATE_CHECK_URL.to_owned(),
+    }
+}
+
+/// Version au format x.y.z (chiffres uniquement), comme attendu par `get_version_number`.
+pub fn is_valid_update_version(version: &str) -> bool {
+    let parts: Vec<&str> = version.split('.').collect();
+    (parts.len() == 3 || parts.len() == 4)
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.len() <= 9 && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// L'URL de téléchargement doit être en HTTPS chez FS Solutions.
+pub fn is_valid_update_url(url: &str) -> bool {
+    url.starts_with(UPDATE_DOWNLOAD_URL_PREFIX)
+        && url.len() <= 2048
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+pub fn set_latest_update_version(version: &str) {
+    *LATEST_UPDATE_VERSION.lock().unwrap() = version.to_owned();
+}
+
+pub fn latest_update_version() -> String {
+    LATEST_UPDATE_VERSION.lock().unwrap().clone()
+}
+
+#[allow(dead_code)] // utilisé seulement sur Windows/macOS (updater)
+/// Nom du fichier téléchargé dans le dossier temporaire, d'après la version proposée
+/// (l'URL FS se termine par `/download?token=…`, inutilisable comme nom de fichier).
+/// Windows : `.exe` obligatoire pour `update_to` ; macOS : `.dmg` pour `extract_update_dmg`.
+pub fn update_file_name() -> Option<String> {
+    let version = latest_update_version();
+    if !is_valid_update_version(&version) {
+        return None;
+    }
+    if cfg!(target_os = "windows") {
+        // RustDesk 1.5.0 gère aussi Windows ARM64 : même suffixe que release_arch_suffix().
+        if cfg!(target_arch = "aarch64") {
+            Some(format!("fs-support-{version}-windows-aarch64.exe"))
+        } else {
+            Some(format!("fs-support-{version}-windows-x86_64.exe"))
+        }
+    } else if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            Some(format!("fs-support-{version}-macos-aarch64.dmg"))
+        } else {
+            Some(format!("fs-support-{version}-macos-x86_64.dmg"))
+        }
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versions_de_mise_a_jour() {
+        assert!(is_valid_update_version("1.0.104"));
+        assert!(is_valid_update_version("1.0.104.2"));
+        assert!(!is_valid_update_version("1.0"));
+        assert!(!is_valid_update_version("1.0.x"));
+        assert!(!is_valid_update_version("download"));
+        assert!(!is_valid_update_version(""));
+    }
+
+    #[test]
+    fn urls_de_mise_a_jour() {
+        assert!(is_valid_update_url(
+            "https://api.fs-solutions.fr/public/support/rustdesk-downloads/windows-exe/download?token=a.b"
+        ));
+        assert!(!is_valid_update_url("http://api.fs-solutions.fr/x"));
+        assert!(!is_valid_update_url("https://api.fs-solutions.fr.evil.test/x"));
+        assert!(!is_valid_update_url("https://github.com/rustdesk/rustdesk/releases/tag/1.4.6"));
+    }
+}
