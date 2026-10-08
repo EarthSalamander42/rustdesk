@@ -1344,7 +1344,7 @@ fn get_valid_subkey() -> String {
     subkey
 }
 
-/ Return install options other than InstallLocation.
+// Return install options other than InstallLocation.
 pub fn get_install_options() -> String {
     let app_name = crate::get_app_name();
     let subkey = format!(".{}", app_name.to_lowercase());
