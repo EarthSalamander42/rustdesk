@@ -1,0 +1,90 @@
+# FS Support : build de test rapide d'UNE plateforme, sur les serveurs GitHub (jamais sur FS-DS-1).
+# Les fichiers partent dans la pré-release « fs-test », que le site et la mise à jour automatique
+# ne lisent pas : aucun client n'est touché. Téléchargement :
+# https://github.com/EarthSalamander42/rustdesk/releases/tag/fs-test
+name: FS Support Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      plateforme:
+        description: "Plateforme à construire"
+        type: choice
+        default: "windows"
+        options:
+          - "windows"
+          - "android"
+          - "macos-apple-silicon"
+          - "macos-intel"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fs-support-test
+  cancel-in-progress: true
+
+jobs:
+  prepare-fs-support-test:
+    name: Prepare FS Support test build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      only: ${{ steps.platform.outputs.only }}
+      mac-x64: ${{ steps.platform.outputs.mac-x64 }}
+      mac-arm64: ${{ steps.platform.outputs.mac-arm64 }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PLATEFORME: ${{ inputs.plateforme }}
+    steps:
+      # Même numéro que la dernière nuit publiée : un test installé n'est jamais « plus récent »
+      # que la nuit suivante (sinon Android refuserait la mise à jour, versionCode inférieur).
+      - name: Compute version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          LAST="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/fs-nightly" --jq '.assets[].name' 2>/dev/null \
+            | sed -n 's/^fs-support-\([0-9]\+\.[0-9]\+\.[0-9]\+\)-.*/\1/p' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 || true)"
+          VERSION="${LAST:-1.0.0}"
+          echo "Version de test : $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Select platform
+        id: platform
+        shell: bash
+        run: |
+          case "$PLATEFORME" in
+            windows) ONLY=windows; X64=false; ARM=false ;;
+            android) ONLY=android; X64=false; ARM=false ;;
+            macos-apple-silicon) ONLY=macos; X64=false; ARM=true ;;
+            macos-intel) ONLY=macos; X64=true; ARM=false ;;
+            *) echo "Plateforme inconnue : $PLATEFORME" >&2; exit 1 ;;
+          esac
+          { echo "only=$ONLY"; echo "mac-x64=$X64"; echo "mac-arm64=$ARM"; } >> "$GITHUB_OUTPUT"
+
+      # Un seul jeu de fichiers dans fs-test : celui du dernier test.
+      - name: Clear previous test files
+        shell: bash
+        run: |
+          set -euo pipefail
+          if RELEASE_ID="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/fs-test" --jq '.id' 2>/dev/null)"; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --paginate --jq '.[].id' | while read -r asset_id; do
+              [[ -n "$asset_id" ]] && gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+            done
+          else
+            echo "Pré-release fs-test absente : elle sera créée par le build."
+          fi
+
+  run-fs-support-test-build:
+    needs: prepare-fs-support-test
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      upload-tag: "fs-test"
+      build-scope: "fs-support"
+      fs-version: ${{ needs.prepare-fs-support-test.outputs.version }}
+      fs-only: ${{ needs.prepare-fs-support-test.outputs.only }}
+      macos-x64: ${{ needs.prepare-fs-support-test.outputs.mac-x64 == 'true' }}
+      macos-arm64: ${{ needs.prepare-fs-support-test.outputs.mac-arm64 == 'true' }}
