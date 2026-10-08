@@ -16,7 +16,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_home_page.dart' show setPasswordDialog;
 import 'package:fs_ui/fs_ui.dart';
 
-import '../common.dart';
+// common.dart définit aussi une classe Dialog : on garde celle de Material.
+import '../common.dart' hide Dialog;
 import '../consts.dart';
 import '../models/platform_model.dart';
 import '../models/server_model.dart';
