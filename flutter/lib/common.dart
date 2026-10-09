@@ -4076,11 +4076,28 @@ void checkUpdate() {
         (Map<String, dynamic> evt) async {
       if (evt['url'] is String) {
         stateGlobal.updateUrl.value = evt['url'];
+        // FS Support (mode Ecran client) : installer la mise a jour sans intervention sur place.
+        fsMaybeAutoUpdate(evt['url'] as String);
       }
     });
     Timer(const Duration(seconds: 1), () async {
       bind.mainGetSoftwareUpdateUrl();
     });
+  }
+}
+
+// FS Support : en mode « Ecran client » (Android), telecharge et installe seul la mise a jour FS.
+// L'installateur est ensuite valide par le service d'accessibilite. Une seule tentative par URL.
+String? _fsLastAutoUpdateUrl;
+void fsMaybeAutoUpdate(String url) {
+  if (!isAndroid || url.isEmpty) return;
+  if (bind.mainGetLocalOption(key: kOptionFsClientScreen) != 'Y') return;
+  if (url == _fsLastAutoUpdateUrl) return;
+  _fsLastAutoUpdateUrl = url;
+  try {
+    gFFI.invokeMethod(AndroidChannel.kFsInstallUpdate, url);
+  } catch (e) {
+    debugPrint('FS Support : mise a jour automatique impossible : $e');
   }
 }
 

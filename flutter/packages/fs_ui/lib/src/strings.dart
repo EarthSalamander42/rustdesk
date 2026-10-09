@@ -98,6 +98,8 @@ class FsStrings {
   static const String accessibilityTodo = 'Accessibilité à activer';
   static const String audio = 'Son';
   static const String clipboard = 'Presse-papiers';
+  static const String overlay = 'Afficher par-dessus les applis';
+  static const String overlayTodo = 'À autoriser pour voir les demandes partout';
   static const String share = 'Partager';
   static const String connectTab = 'Se connecter';
   static const String settingsTab = 'Réglages';

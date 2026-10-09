@@ -2,8 +2,10 @@ package com.carriez.flutter_hbb
 
 import android.Manifest.permission.*
 import android.annotation.SuppressLint
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.media.AudioRecord
 import android.media.AudioRecord.READ_BLOCKING
 import android.media.MediaCodecList
@@ -35,6 +37,8 @@ const val EXT_INIT_FROM_BOOT = "EXT_INIT_FROM_BOOT"
 const val EXT_MEDIA_PROJECTION_RES_INTENT = "MEDIA_PROJECTION_RES_INTENT"
 const val EXT_MEDIA_PROJECTION_RESULT_RECEIVER = "MEDIA_PROJECTION_RESULT_RECEIVER"
 const val EXT_LOGIN_REQ_NOTIFY = "LOGIN_REQ_NOTIFY"
+// FS Support : identifiant de connexion porté par les boutons de la notification de demande.
+const val EXT_LOGIN_REQ_CLIENT_ID = "LOGIN_REQ_CLIENT_ID"
 
 // Activity requestCode
 const val REQ_INVOKE_PERMISSION_ACTIVITY_MEDIA_PROJECTION = 101
@@ -65,6 +69,12 @@ const val KEY_IS_SUPPORT_VOICE_CALL = "KEY_IS_SUPPORT_VOICE_CALL"
 const val KEY_SHARED_PREFERENCES = "KEY_SHARED_PREFERENCES"
 const val KEY_START_ON_BOOT_OPT = "KEY_START_ON_BOOT_OPT"
 const val KEY_APP_DIR_CONFIG_PATH = "KEY_APP_DIR_CONFIG_PATH"
+
+// FS Support : option locale (pont Rust, lue par FFI.getLocalOption) qui force tous les
+// clics / appuis longs / defilements a passer par les noeuds d'accessibilite, sans tenter
+// dispatchGesture. Pour les ROM (boitiers Droidlogic) qui declarent les gestes aboutis tout
+// en les ignorant, ce que le mode de secours automatique (compteur de refus) ne detecte pas.
+const val KEY_FS_FORCE_ACCESSIBILITY_CLICKS = "fs-force-accessibility-clicks"
 
 @SuppressLint("ConstantLocale")
 val LOCAL_NAME = Locale.getDefault().toString()
@@ -105,6 +115,74 @@ fun startAction(context: Context, action: String) {
         })
     } catch (e: Exception) {
         e.printStackTrace()
+        if (action == ACTION_MANAGE_OVERLAY_PERMISSION) {
+            startOverlaySettingsFallback(context)
+        }
+    }
+}
+
+// FS Support : certaines ROM (boîtiers Android TV, Amlogic « Droidlogic ») n'ont pas la page par
+// appli de l'autorisation de superposition : liste générale, puis fiche de l'appli. Si tout est
+// masqué : adb shell appops set fr.fssolutions.support SYSTEM_ALERT_WINDOW allow
+private fun startOverlaySettingsFallback(context: Context) {
+    val intents = listOf(
+        Intent(ACTION_MANAGE_OVERLAY_PERMISSION),
+        Intent(ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.packageName)),
+    )
+    for (intent in intents) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (e: Exception) {
+            Log.w("common", "FS Support : réglage indisponible : ${intent.action}", e)
+        }
+    }
+}
+
+// FS Support (assistant « Ecran client ») : ouvre directement la fiche du service d'accessibilite
+// FS Support (ACCESSIBILITY_DETAILS_SETTINGS + composant), avec repli sur la liste generale puis la
+// fiche de l'appli pour les ROM qui n'ont pas cette page (boitiers TV, Amlogic « Droidlogic »).
+fun startAccessibilityDetails(context: Context) {
+    val component = ComponentName(context, InputService::class.java).flattenToString()
+    val detail = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS").apply {
+        putExtra("android.intent.extra.COMPONENT_NAME", component)
+        // Certaines ROM lisent plutot l'argument de fragment des Reglages.
+        putExtra(":settings:fragment_args_key", component)
+        val args = Bundle()
+        args.putString(":settings:fragment_args_key", component)
+        putExtra(":settings:show_fragment_args", args)
+    }
+    val intents = listOf(
+        detail,
+        Intent(ACTION_ACCESSIBILITY_SETTINGS),
+        Intent(ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.packageName)),
+    )
+    for (intent in intents) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (e: Exception) {
+            Log.w("common", "FS Support : page d'accessibilite indisponible : ${intent.action}", e)
+        }
+    }
+}
+
+// FS Support (assistant « Ecran client ») : ouvre « Installer des applis inconnues » pour FS Support
+// (MANAGE_UNKNOWN_APP_SOURCES + package:), avec repli sur la liste generale puis la fiche de l'appli.
+fun startManageUnknownSources(context: Context) {
+    val pkg = Uri.parse("package:" + context.packageName)
+    val intents = listOf(
+        Intent("android.settings.MANAGE_UNKNOWN_APP_SOURCES", pkg),
+        Intent("android.settings.MANAGE_UNKNOWN_APP_SOURCES"),
+        Intent(ACTION_APPLICATION_DETAILS_SETTINGS, pkg),
+    )
+    for (intent in intents) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (e: Exception) {
+            Log.w("common", "FS Support : reglage sources inconnues indisponible : ${intent.action}", e)
+        }
     }
 }
 

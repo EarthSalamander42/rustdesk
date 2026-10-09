@@ -13,6 +13,7 @@ import '../consts.dart';
 import '../mobile/pages/server_page.dart' show ConnectionManager, showScamWarning;
 import '../models/platform_model.dart';
 import '../models/server_model.dart';
+import 'fs_client_screen.dart';
 
 /// Active l'écran de partage de l'Atelier sur Android.
 const bool kFsAtelierMobile = true;
@@ -34,6 +35,14 @@ class _FsMobileShareState extends State<FsMobileShare> {
     bind.mainGetVersion().then((v) {
       if (mounted) setState(() => _version = v);
     });
+    // FS Support : au premier lancement sur Android, proposer l'assistant « Ecran client ».
+    if (isAndroid && fsShouldOfferWizard()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          showFsClientScreenWizard(context, widget.serverModel);
+        }
+      });
+    }
   }
 
   bool get _scamWarningDue =>
@@ -71,6 +80,16 @@ class _FsMobileShareState extends State<FsMobileShare> {
         warning: FsStrings.accessibilityTodo,
         onChanged: (_) => m.toggleInput(),
       ),
+      // Carte native « Demande de prise en main » par-dessus les autres applis (MainService.kt) :
+      // la bascule ouvre le réglage système ; l'état est relu par ServerPage toutes les 3 s.
+      if (isAndroid)
+        FsPermission(
+          icon: Icons.layers_rounded,
+          label: FsStrings.overlay,
+          value: m.overlayOk,
+          warning: FsStrings.overlayTodo,
+          onChanged: (_) => m.openOverlayPermissionSettings(),
+        ),
       FsPermission(
         icon: Icons.folder_open_rounded,
         label: FsStrings.fileTransfer,
@@ -110,6 +129,8 @@ class _FsMobileShareState extends State<FsMobileShare> {
           },
           permissions: perms,
           connections: const ConnectionManager(),
+          // FS Support : mode « Ecran client » (mise en place une fois, puis gestion a distance).
+          footer: isAndroid ? FsClientScreenSection(serverModel: m) : null,
         ),
       ),
     );

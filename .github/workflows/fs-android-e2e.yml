@@ -1,0 +1,156 @@
+# FS Support — test interne « acces direct » sur emulateur (serveurs GitHub UNIQUEMENT ; jamais FS-DS-1).
+#
+# Construit l'APK FS Support (via flutter-build.yml, qui compile aussi le Kotlin et le Rust Android
+# des trois chantiers), lance un emulateur, installe l'APK, execute res/fs/android/acces-direct.sh
+# EXACTEMENT comme Jason (adb push + adb shell), puis verifie :
+#   - appops PROJECT_MEDIA / SYSTEM_ALERT_WINDOW = allow ;
+#   - WRITE_SECURE_SETTINGS accordee ;
+#   - service d'accessibilite present et lie ;
+#   - reactivation automatique de l'accessibilite ;
+#   - capture active sans fenetre de consentement (non essentiel ; limite Android 14+).
+# Resultats en annotations (lisibles sans compte) + logcat et captures en artefacts.
+name: FS Android e2e
+
+on:
+  push:
+    branches:
+      - "fs/android-**"
+  workflow_dispatch:
+    inputs:
+      api-levels:
+        description: "Niveaux d'API (JSON), ex. [33] ou [33,34]"
+        type: string
+        default: "[33,34]"
+
+# flutter-build.yml (reutilise) declare contents: write ; sans cette autorisation l'appel echoue au demarrage.
+permissions:
+  contents: write
+
+concurrency:
+  group: fs-android-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Prepare e2e version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      api-levels: ${{ steps.v.outputs.api_levels }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "version=0.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          LEVELS='${{ github.event.inputs.api-levels }}'
+          if [[ -z "$LEVELS" ]]; then LEVELS="[33,34]"; fi
+          echo "api_levels=$LEVELS" >> "$GITHUB_OUTPUT"
+
+  build-apk:
+    name: Build FS Support APK
+    needs: prepare
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    with:
+      # Pas de release : l'APK sort en artefact de run (fs-support-apk), recupere par le job emulateur.
+      upload-artifact: false
+      build-scope: "fs-support"
+      fs-only: "android"
+      fs-version: ${{ needs.prepare.outputs.version }}
+      fs-apk-artifact: true
+
+  emulator:
+    name: Emulateur API ${{ matrix.api-level }}
+    needs: [prepare, build-apk]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: ${{ fromJSON(needs.prepare.outputs.api-levels) }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download FS Support APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fs-support-apk
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run e2e on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          API_LEVEL: ${{ matrix.api-level }}
+          E2E_OUT: e2e-artifacts
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: true
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: bash ./res/fs/android/e2e/verify-e2e.sh
+
+      - name: Upload e2e artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fs-android-e2e-api-${{ matrix.api-level }}
+          path: e2e-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
+
+  emulator-client-screen:
+    name: Ecran client API ${{ matrix.api-level }}
+    needs: [prepare, build-apk]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Cas du client SANS ADB : sans aucun appops, sur API 33 ET API 34.
+        api-level: [33, 34]
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download FS Support APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fs-support-apk
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run client-screen e2e on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          API_LEVEL: ${{ matrix.api-level }}
+          E2E_OUT: e2e-artifacts
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: true
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: bash ./res/fs/android/e2e/verify-e2e-client-screen.sh
+
+      - name: Upload client-screen e2e artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fs-android-e2e-client-screen-api-${{ matrix.api-level }}
+          path: e2e-artifacts
+          if-no-files-found: ignore
+          retention-days: 7

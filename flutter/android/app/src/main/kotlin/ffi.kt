@@ -28,4 +28,9 @@ object FFI {
     external fun getBuildinOption(key: String): String
     external fun onClipboardUpdate(clips: ByteBuffer)
     external fun isServiceClipboardEnabled(): Boolean
+    // FS Support : réponse native à une demande de prise en main (carte par-dessus l'écran,
+    // boutons de notification) ; marche sans moteur Flutter. Faux si la demande n'est plus en attente.
+    external fun cmLoginResponse(connId: Int, accept: Boolean): Boolean
+    // FS Support : faux en mode d'approbation « mot de passe seulement ».
+    external fun canApproveByClick(): Boolean
 }

@@ -2956,7 +2956,7 @@ pub mod server_side {
     use jni::{
         errors::{Error as JniError, Result as JniResult},
         objects::{JClass, JObject, JString},
-        sys::{jboolean, jstring},
+        sys::{jboolean, jint, jstring},
         JNIEnv,
     };
 
@@ -3067,5 +3067,29 @@ pub mod server_side {
         _class: JClass,
     ) -> jboolean {
         jboolean::from(crate::server::is_clipboard_service_ok())
+    }
+
+    /// FS Support : accepte ou refuse la demande de prise en main `conn_id` depuis le service
+    /// Android (carte par-dessus l'écran, boutons de notification), même sans moteur Flutter.
+    /// Kotlin : `FFI.cmLoginResponse(connId: Int, accept: Boolean): Boolean`.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_ffi_FFI_cmLoginResponse(
+        _env: JNIEnv,
+        _class: JClass,
+        conn_id: jint,
+        accept: jboolean,
+    ) -> jboolean {
+        let done = crate::flutter::connection_manager::android_login_response(conn_id, accept != 0);
+        jboolean::from(done)
+    }
+
+    /// FS Support : vrai si une demande peut s'accepter d'un clic (pas en mode « mot de passe
+    /// seulement »). Kotlin : `FFI.canApproveByClick(): Boolean`.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_ffi_FFI_canApproveByClick(
+        _env: JNIEnv,
+        _class: JClass,
+    ) -> jboolean {
+        jboolean::from(crate::flutter::connection_manager::android_click_approve_allowed())
     }
 }

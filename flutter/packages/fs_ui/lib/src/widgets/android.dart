@@ -65,6 +65,7 @@ class FsShareBody extends StatelessWidget {
     this.bottomPadding = 18,
     this.controller,
     this.header,
+    this.footer,
   });
 
   /// Défilement (le gestionnaire RustDesk s'en sert pour montrer une nouvelle connexion).
@@ -72,6 +73,9 @@ class FsShareBody extends StatelessWidget {
 
   /// Bandeau facultatif au-dessus de tout (avertissement RustDesk).
   final Widget? header;
+
+  /// Section facultative en bas, sous les autorisations (reglage « Acces direct » FS Support).
+  final Widget? footer;
 
   final String id;
   final String password;
@@ -161,6 +165,7 @@ class FsShareBody extends StatelessWidget {
             decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.line))),
             child: Column(children: [for (final p in permissions) _PermRow(p: p)]),
           ),
+          if (footer != null) ...[const SizedBox(height: 22), footer!],
           const SizedBox(height: 18),
           FsCredit(version: version, onTap: onCredit, oneLine: true, center: true),
         ]),

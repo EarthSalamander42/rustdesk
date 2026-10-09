@@ -1,7 +1,11 @@
+<!-- FS Support : flagRetrieveInteractiveWindows donne accès à toutes les fenêtres (mode de secours
+     des clics). typeWindowStateChanged + typeWindowContentChanged : nécessaires au mode « Ecran
+     client » pour repérer la fenêtre de consentement de capture et l'installateur (InputService
+     pose de toute façon ces valeurs à la main dans onServiceConnected). -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeWindowsChanged"
+    android:accessibilityEventTypes="typeWindowsChanged|typeWindowStateChanged|typeWindowContentChanged"
     android:canRetrieveWindowContent="true"
-    android:accessibilityFlags="flagDefault"
-    android:notificationTimeout="50"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
+    android:notificationTimeout="100"
     android:description="@string/accessibility_service_description"
     android:canPerformGestures="true"/>

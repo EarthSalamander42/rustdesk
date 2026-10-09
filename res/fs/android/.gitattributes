@@ -1,0 +1,4 @@
+# FS Support : scripts shell toujours en LF (executes sur Android / Linux).
+*.sh text eol=lf
+# Enveloppe Windows : CRLF cote Windows.
+*.ps1 text eol=crlf
