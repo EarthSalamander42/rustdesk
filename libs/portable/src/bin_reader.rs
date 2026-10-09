@@ -49,6 +49,35 @@ impl BinaryReader {
             package_paths,
         })
     }
+
+    /// FS Support : renomme l'exécutable de la charge générique (`./rustdesk.exe`) en `new_exe`
+    /// (`./FS Support.exe`), pour que la copie décompressée porte le nom de l'application.
+    /// Sans effet si un paquet client (RDPKG) a déjà choisi un autre nom, si l'exécutable n'est
+    /// pas dans la charge ou si le nouveau nom y est déjà pris.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn rename_stock_executable(&mut self, stock_stem: &str, new_exe: &str) {
+        let stem = Path::new(&self.exe.replace('\\', "/"))
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("")
+            .to_owned();
+        let old_key = normalize_path(&self.exe);
+        let new_key = normalize_path(new_exe);
+        if !stem.eq_ignore_ascii_case(stock_stem)
+            || new_key.is_empty()
+            || new_key == old_key
+            || !self.files.iter().any(|f| normalize_path(&f.path) == old_key)
+            || self.files.iter().any(|f| normalize_path(&f.path) == new_key)
+        {
+            return;
+        }
+        for file in self.files.iter_mut() {
+            if normalize_path(&file.path) == old_key {
+                file.path = new_exe.to_owned();
+            }
+        }
+        self.exe = new_exe.to_owned();
+    }
 }
 
 // Folds the per-customer package into the generic payload.
@@ -388,6 +417,49 @@ mod tests {
         let embedded = parse(blob(&[("./librustdesk.dll", b"core")], "./rustdesk.exe")).unwrap();
         let (files, _) = merge(embedded, package);
         assert!(entry(&files, "./data/logo.png").is_some());
+    }
+
+    fn reader(files: &[(&str, &[u8])], exe: &str) -> BinaryReader {
+        let (files, exe) = parse(blob(files, exe)).unwrap();
+        BinaryReader {
+            files,
+            exe,
+            package_paths: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn fs_nom_app_exe_renomme_comme_l_application() {
+        // generate.py sous Windows écrit des barres obliques inverses.
+        let mut r = reader(
+            &[(".\\rustdesk.exe", b"app"), (".\\librustdesk.dll", b"core")],
+            ".\\rustdesk.exe",
+        );
+        r.rename_stock_executable("rustdesk", "./FS Support.exe");
+        assert_eq!(r.exe, "./FS Support.exe");
+        assert_eq!(entry(&r.files, "./FS Support.exe").unwrap().raw, b"app");
+        assert!(entry(&r.files, "./rustdesk.exe").is_none());
+        assert_eq!(entry(&r.files, "./librustdesk.dll").unwrap().raw, b"core");
+    }
+
+    #[test]
+    fn fs_nom_app_exe_inchange_hors_charge_generique() {
+        // Paquet client : son nom d'exécutable est conservé.
+        let mut r = reader(&[("./acme.exe", b"app")], "./acme.exe");
+        r.rename_stock_executable("rustdesk", "./FS Support.exe");
+        assert_eq!(r.exe, "./acme.exe");
+        // Exécutable absent de la charge : rien n'est renommé, le lancement resterait possible.
+        let mut r = reader(&[("./librustdesk.dll", b"core")], "./rustdesk.exe");
+        r.rename_stock_executable("rustdesk", "./FS Support.exe");
+        assert_eq!(r.exe, "./rustdesk.exe");
+        // Nom cible déjà présent : pas de doublon.
+        let mut r = reader(
+            &[("./rustdesk.exe", b"app"), ("./FS Support.exe", b"autre")],
+            "./rustdesk.exe",
+        );
+        r.rename_stock_executable("rustdesk", "./FS Support.exe");
+        assert_eq!(r.exe, "./rustdesk.exe");
+        assert_eq!(entry(&r.files, "./rustdesk.exe").unwrap().raw, b"app");
     }
 
     #[test]
