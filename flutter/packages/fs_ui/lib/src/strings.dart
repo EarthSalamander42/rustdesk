@@ -4,7 +4,7 @@ class FsStrings {
   FsStrings._();
 
   static const String appName = 'FS Support';
-  static const String byline = 'par FullStack.solutions';
+  static const String byline = 'par FS Solutions';
   static const String poweredBy = 'Technologie RustDesk';
   static const String license = 'AGPL-3.0';
   static const String sourceUrl = 'https://github.com/EarthSalamander42/rustdesk';

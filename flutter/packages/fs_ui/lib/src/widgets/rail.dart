@@ -57,7 +57,7 @@ class FsRail extends StatelessWidget {
   }
 }
 
-/// Marque : monogramme 38 px, « FS Support » et « par FullStack.solutions ».
+/// Marque : monogramme 38 px, « FS Support » et « par FS Solutions ».
 class FsBrand extends StatelessWidget {
   const FsBrand({super.key});
 

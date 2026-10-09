@@ -75,6 +75,31 @@ pub fn windows_install_version_parts() -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
+// Schéma d'URL et extension de fichier (09/10/2026).
+//
+// Le nom de l'application, « FS Support », contient une espace. Il reste tel quel pour le
+// dossier d'installation, l'exe, le service et %APPDATA%\FS Support (ID, mots de passe et
+// réglages des clients en dépendent). Mais un schéma d'URL ne peut pas contenir d'espace
+// (RFC 3986) : liens, extension `.<schéma>` et clés HKEY_CLASSES_ROOT utilisent donc une forme
+// unique, en minuscules, chaque suite d'espaces remplacée par un tiret. « RustDesk » donne
+// toujours « rustdesk ».
+// ---------------------------------------------------------------------------
+
+/// Forme sans espace d'un nom d'application : « FS Support » → « fs-support ».
+pub fn url_scheme_of(app_name: &str) -> String {
+    app_name
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Schéma d'URL (`fs-support://`) et extension de fichier (`.fs-support`) du client.
+pub fn url_scheme() -> String {
+    url_scheme_of(&crate::get_app_name())
+}
+
+// ---------------------------------------------------------------------------
 // Mise à jour automatique FS Support (07/10/2026).
 //
 // Un client FS Support n'interroge jamais api.rustdesk.com : il demande la dernière version
@@ -184,6 +209,18 @@ mod tests {
         assert!(!is_valid_update_version("1.0.x"));
         assert!(!is_valid_update_version("download"));
         assert!(!is_valid_update_version(""));
+    }
+
+    #[test]
+    fn nom_app_schema_url_sans_espace() {
+        assert_eq!(url_scheme_of("FS Support"), "fs-support");
+        assert_eq!(url_scheme_of("RustDesk"), "rustdesk");
+        assert_eq!(url_scheme_of("FS-Solutions Support 2"), "fs-solutions-support-2");
+        assert_eq!(url_scheme_of(" FS   Support "), "fs-support");
+        // Le lien construit avec ce schéma est une URL valide.
+        let link = format!("{}://123456789", url_scheme_of("FS Support"));
+        let parsed = url::Url::parse(&link).expect("le lien doit être une URL valide");
+        assert_eq!(parsed.scheme(), "fs-support");
     }
 
     #[test]

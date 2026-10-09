@@ -127,13 +127,22 @@ const MSI_EXIT_SUCCESS_REBOOT_INITIATED: u32 = 1641;
 const MSI_EXIT_SUCCESS_REBOOT_REQUIRED: u32 = 3010;
 const HKLM_PREFIX: &str = "HKEY_LOCAL_MACHINE\\";
 
+// Le nom de l'application entre dans les scripts cmd.exe d'installation, de mise à jour et de
+// désinstallation (`run_cmds`) : seuls des caractères sans effet pour cmd.exe sont admis.
+// FS Support : l'espace est admise (« FS Support »), seule et entre deux caractères
+// [a-zA-Z0-9-] — ni en tête, ni en fin, jamais deux de suite. Toutes les commandes qui portent
+// le nom, un chemin ou une clé de registre qui en dérive l'encadrent de guillemets ; une espace
+// entre guillemets n'a aucun effet pour cmd.exe. Tout le reste (`& | < > ^ % ! " ( ) ;`,
+// tabulation, caractères non ASCII…) est toujours refusé.
 fn validate_install_app_name(app_name: &str) -> ResultType<()> {
-    if app_name.is_empty()
-        || !app_name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '-')
-    {
-        bail!("Application name must match [a-zA-Z0-9-]+");
+    // `split(' ')` donne un mot vide pour une espace en tête, en fin ou doublée, et pour "".
+    if !app_name.split(' ').all(|word| {
+        !word.is_empty()
+            && word
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    }) {
+        bail!("Application name must match [a-zA-Z0-9-]+( [a-zA-Z0-9-]+)*");
     }
     Ok(())
 }
@@ -1070,8 +1079,9 @@ pub fn is_share_rdp() -> bool {
 
 pub fn set_share_rdp(enable: bool) {
     let (subkey, _, _, _) = get_install_info();
+    // FS Support : clé entre guillemets (« ...\Uninstall\FS Support » contient une espace).
     let cmd = format!(
-        "reg add {} /f /v share_rdp /t REG_SZ /d \"{}\"",
+        "reg add \"{}\" /f /v share_rdp /t REG_SZ /d \"{}\"",
         subkey,
         if enable { "true" } else { "false" }
     );
@@ -1341,13 +1351,17 @@ fn get_valid_subkey() -> String {
         }
     }
 
+    // Aucune clé (FS Support installé avant le correctif des guillemets : `reg add` échouait
+    // sur « ...\Uninstall\FS Support ») : clé de désinstallation par défaut.
+    // `get_install_info_with_subkey` prend alors le dossier par défaut, donc `is_installed()`
+    // reste vrai si l'exe y est, et `update_me` recrée l'entrée complète dans cette clé.
     subkey
 }
 
 // Return install options other than InstallLocation.
 pub fn get_install_options() -> String {
-    let app_name = crate::get_app_name();
-    let subkey = format!(".{}", app_name.to_lowercase());
+    // FS Support : extension sans espace (`.fs-support`), voir `fs_support::url_scheme`.
+    let subkey = format!(".{}", crate::fs_support::url_scheme());
     let mut opts = HashMap::new();
 
     let desktop_shortcuts = get_reg_of_hkcr(&subkey, REG_NAME_INSTALL_DESKTOPSHORTCUTS);
@@ -1369,8 +1383,7 @@ pub fn get_silent_install_options(printer_override: Option<bool>) -> &'static st
     let install_printer = match printer_override {
         Some(override_value) => override_value,
         None => {
-            let app_name = crate::get_app_name();
-            let subkey = format!(".{}", app_name.to_lowercase());
+            let subkey = format!(".{}", crate::fs_support::url_scheme());
             let printer = get_reg_of_hkcr(&subkey, REG_NAME_INSTALL_PRINTER);
             printer.as_deref() == Some("1")
         }
@@ -1534,6 +1547,55 @@ pub fn remove_meta_toml_cmd(is_msi: bool, path: &str) -> String {
     }
 }
 
+// FS Support : clés HKEY_CLASSES_ROOT de l'extension `.<ext>` (fichier ouvert avec `--play`)
+// et du schéma d'URL `<ext>://`, chaque chemin de clé entre guillemets. `ext` vient de
+// `fs_support::url_scheme()` (« fs-support », jamais d'espace). `nested_exe` est déjà passé par
+// `escape_nested_cmd_ampersands` : dans `/d "\"<exe>\" …"`, cmd.exe le voit hors guillemets.
+// Écrites à l'installation (`get_after_install`) et réécrites par `update_me` pour une
+// installation EXE : une installation faite avant ce correctif, où ces clés n'ont jamais été
+// créées, est réparée par la mise à jour suivante.
+fn get_reg_url_scheme_cmds(ext: &str, nested_exe: &str) -> String {
+    format!(
+        "
+reg add \"HKEY_CLASSES_ROOT\\.{ext}\" /f
+reg add \"HKEY_CLASSES_ROOT\\.{ext}\\DefaultIcon\" /f
+reg add \"HKEY_CLASSES_ROOT\\.{ext}\\DefaultIcon\" /f /ve /t REG_SZ  /d \"\\\"{nested_exe}\\\",0\"
+reg add \"HKEY_CLASSES_ROOT\\.{ext}\\shell\" /f
+reg add \"HKEY_CLASSES_ROOT\\.{ext}\\shell\\open\" /f
+reg add \"HKEY_CLASSES_ROOT\\.{ext}\\shell\\open\\command\" /f
+reg add \"HKEY_CLASSES_ROOT\\.{ext}\\shell\\open\\command\" /f /ve /t REG_SZ /d \"\\\"{nested_exe}\\\" --play \\\"%%1\\\"\"
+reg add \"HKEY_CLASSES_ROOT\\{ext}\" /f
+reg add \"HKEY_CLASSES_ROOT\\{ext}\" /f /v \"URL Protocol\" /t REG_SZ /d \"\"
+reg add \"HKEY_CLASSES_ROOT\\{ext}\\shell\" /f
+reg add \"HKEY_CLASSES_ROOT\\{ext}\\shell\\open\" /f
+reg add \"HKEY_CLASSES_ROOT\\{ext}\\shell\\open\\command\" /f
+reg add \"HKEY_CLASSES_ROOT\\{ext}\\shell\\open\\command\" /f /ve /t REG_SZ /d \"\\\"{nested_exe}\\\" \\\"%%1\\\"\"
+"
+    )
+}
+
+// FS Support : suppression des clés de `get_reg_url_scheme_cmds`, puis des anciennes clés
+// `.<nom en minuscules>` et `<nom en minuscules>` (« .fs support », « fs support ») si le nom
+// diffère du schéma. Ces anciennes clés n'existent normalement pas (leur `reg add` sans
+// guillemets échouait) : erreur masquée, le script continue qu'elles existent ou non.
+fn get_reg_delete_url_scheme_cmds(app_name: &str, ext: &str) -> String {
+    let mut cmds = format!(
+        "
+reg delete \"HKEY_CLASSES_ROOT\\.{ext}\" /f
+reg delete \"HKEY_CLASSES_ROOT\\{ext}\" /f
+"
+    );
+    let legacy_ext = app_name.to_lowercase();
+    if legacy_ext != ext {
+        cmds.push_str(&format!(
+            "reg delete \"HKEY_CLASSES_ROOT\\.{legacy_ext}\" /f > nul 2>&1
+reg delete \"HKEY_CLASSES_ROOT\\{legacy_ext}\" /f > nul 2>&1
+"
+        ));
+    }
+    cmds
+}
+
 fn get_after_install(
     exe: &str,
     reg_value_start_menu_shortcuts: Option<String>,
@@ -1541,7 +1603,8 @@ fn get_after_install(
     reg_value_printer: Option<String>,
 ) -> String {
     let app_name = crate::get_app_name();
-    let ext = app_name.to_lowercase();
+    // FS Support : extension et schéma d'URL sans espace (« fs-support »).
+    let ext = crate::fs_support::url_scheme();
     let nested_exe = escape_nested_cmd_ampersands(exe);
 
     // reg delete HKEY_CURRENT_USER\Software\Classes for
@@ -1553,47 +1616,38 @@ fn get_after_install(
 
     let desktop_shortcuts = reg_value_desktop_shortcuts
         .map(|v| {
-            format!("reg add HKEY_CLASSES_ROOT\\.{ext} /f /v {REG_NAME_INSTALL_DESKTOPSHORTCUTS} /t REG_SZ /d \"{v}\"")
+            format!("reg add \"HKEY_CLASSES_ROOT\\.{ext}\" /f /v {REG_NAME_INSTALL_DESKTOPSHORTCUTS} /t REG_SZ /d \"{v}\"")
         })
         .unwrap_or_default();
     let start_menu_shortcuts = reg_value_start_menu_shortcuts
         .map(|v| {
             format!(
-                "reg add HKEY_CLASSES_ROOT\\.{ext} /f /v {REG_NAME_INSTALL_STARTMENUSHORTCUTS} /t REG_SZ /d \"{v}\""
+                "reg add \"HKEY_CLASSES_ROOT\\.{ext}\" /f /v {REG_NAME_INSTALL_STARTMENUSHORTCUTS} /t REG_SZ /d \"{v}\""
             )
         })
         .unwrap_or_default();
     let reg_printer = reg_value_printer
         .map(|v| {
             format!(
-                "reg add HKEY_CLASSES_ROOT\\.{ext} /f /v {REG_NAME_INSTALL_PRINTER} /t REG_SZ /d \"{v}\""
+                "reg add \"HKEY_CLASSES_ROOT\\.{ext}\" /f /v {REG_NAME_INSTALL_PRINTER} /t REG_SZ /d \"{v}\""
             )
         })
         .unwrap_or_default();
 
     format!("
     chcp 65001
-    reg add HKEY_CLASSES_ROOT\\.{ext} /f
+    {reg_url_scheme}
     {desktop_shortcuts}
     {start_menu_shortcuts}
     {reg_printer}
-    reg add HKEY_CLASSES_ROOT\\.{ext}\\DefaultIcon /f
-    reg add HKEY_CLASSES_ROOT\\.{ext}\\DefaultIcon /f /ve /t REG_SZ  /d \"\\\"{nested_exe}\\\",0\"
-    reg add HKEY_CLASSES_ROOT\\.{ext}\\shell /f
-    reg add HKEY_CLASSES_ROOT\\.{ext}\\shell\\open /f
-    reg add HKEY_CLASSES_ROOT\\.{ext}\\shell\\open\\command /f
-    reg add HKEY_CLASSES_ROOT\\.{ext}\\shell\\open\\command /f /ve /t REG_SZ /d \"\\\"{nested_exe}\\\" --play \\\"%%1\\\"\"
-    reg add HKEY_CLASSES_ROOT\\{ext} /f
-    reg add HKEY_CLASSES_ROOT\\{ext} /f /v \"URL Protocol\" /t REG_SZ /d \"\"
-    reg add HKEY_CLASSES_ROOT\\{ext}\\shell /f
-    reg add HKEY_CLASSES_ROOT\\{ext}\\shell\\open /f
-    reg add HKEY_CLASSES_ROOT\\{ext}\\shell\\open\\command /f
-    reg add HKEY_CLASSES_ROOT\\{ext}\\shell\\open\\command /f /ve /t REG_SZ /d \"\\\"{nested_exe}\\\" \\\"%%1\\\"\"
     netsh advfirewall firewall add rule name=\"{app_name} Service\" dir=out action=allow program=\"{exe}\" enable=yes
     netsh advfirewall firewall add rule name=\"{app_name} Service\" dir=in action=allow program=\"{exe}\" enable=yes
     {create_service}
     reg add HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System /f /v SoftwareSASGeneration /t REG_DWORD /d 1
-    ", create_service=get_create_service(&exe))
+    ",
+        reg_url_scheme = get_reg_url_scheme_cmds(&ext, &nested_exe),
+        create_service = get_create_service(&exe),
+    )
 }
 
 pub fn install_me(options: &str, path: String, silent: bool, debug: bool) -> ResultType<()> {
@@ -1735,6 +1789,8 @@ copy /Y \"{tmp_path}\\{app_name} Tray.lnk\" \"%PROGRAMDATA%\\Microsoft\\Windows\
     // Remember to check if `update_me` need to be changed if changing the `cmds`.
     // No need to merge the existing dup code, because the code in these two functions are too critical.
     // New code should be written in a common function.
+    // FS Support : `{subkey}` (« ...\Uninstall\FS Support ») toujours entre guillemets.
+    // `get_uninstall_entry_cmds`, appelée par `update_me`, réécrit les mêmes valeurs d'identité.
     let cmds = format!(
         "
 {uninstall_str}
@@ -1742,20 +1798,20 @@ chcp 65001
 md \"{path}\"
 {copy_exe}
 {rename_exe}
-reg add {subkey} /f
-reg add {subkey} /f /v DisplayIcon /t REG_SZ /d \"{display_icon}\"
-reg add {subkey} /f /v DisplayName /t REG_SZ /d \"{app_name}\"
-reg add {subkey} /f /v DisplayVersion /t REG_SZ /d \"{version}\"
-reg add {subkey} /f /v Version /t REG_SZ /d \"{version}\"
-reg add {subkey} /f /v BuildDate /t REG_SZ /d \"{build_date}\"
-reg add {subkey} /f /v InstallLocation /t REG_SZ /d \"{path}\"
-reg add {subkey} /f /v Publisher /t REG_SZ /d \"{app_name}\"
-reg add {subkey} /f /v VersionMajor /t REG_DWORD /d {version_major}
-reg add {subkey} /f /v VersionMinor /t REG_DWORD /d {version_minor}
-reg add {subkey} /f /v VersionBuild /t REG_DWORD /d {version_build}
-reg add {subkey} /f /v UninstallString /t REG_SZ /d \"\\\"{nested_exe}\\\" --uninstall\"
-reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
-reg add {subkey} /f /v WindowsInstaller /t REG_DWORD /d 0
+reg add \"{subkey}\" /f
+reg add \"{subkey}\" /f /v DisplayIcon /t REG_SZ /d \"{display_icon}\"
+reg add \"{subkey}\" /f /v DisplayName /t REG_SZ /d \"{app_name}\"
+reg add \"{subkey}\" /f /v DisplayVersion /t REG_SZ /d \"{version}\"
+reg add \"{subkey}\" /f /v Version /t REG_SZ /d \"{version}\"
+reg add \"{subkey}\" /f /v BuildDate /t REG_SZ /d \"{build_date}\"
+reg add \"{subkey}\" /f /v InstallLocation /t REG_SZ /d \"{path}\"
+reg add \"{subkey}\" /f /v Publisher /t REG_SZ /d \"{app_name}\"
+reg add \"{subkey}\" /f /v VersionMajor /t REG_DWORD /d {version_major}
+reg add \"{subkey}\" /f /v VersionMinor /t REG_DWORD /d {version_minor}
+reg add \"{subkey}\" /f /v VersionBuild /t REG_DWORD /d {version_build}
+reg add \"{subkey}\" /f /v UninstallString /t REG_SZ /d \"\\\"{nested_exe}\\\" --uninstall\"
+reg add \"{subkey}\" /f /v EstimatedSize /t REG_DWORD /d {size}
+reg add \"{subkey}\" /f /v WindowsInstaller /t REG_DWORD /d 0
 {mk_shortcut_commands}
 {uninstall_shortcut_commands}
 {tray_shortcuts}
@@ -1803,7 +1859,6 @@ pub fn run_before_uninstall() -> ResultType<()> {
 
 fn get_before_uninstall(kill_self: bool) -> String {
     let app_name = crate::get_app_name();
-    let ext = app_name.to_lowercase();
     let filter = if kill_self {
         "".to_string()
     } else {
@@ -1816,11 +1871,13 @@ fn get_before_uninstall(kill_self: bool) -> String {
     sc delete \"{app_name}\"
     taskkill /F /IM {broker_exe}
     taskkill /F /IM \"{app_name}.exe\"{filter}
-    reg delete HKEY_CLASSES_ROOT\\.{ext} /f
-    reg delete HKEY_CLASSES_ROOT\\{ext} /f
+    {reg_delete_url_scheme}
     netsh advfirewall firewall delete rule name=\"{app_name} Service\"
     ",
         broker_exe = WIN_TOPMOST_INJECTED_PROCESS_EXE,
+        // FS Support : clés du schéma sans espace, puis anciennes clés éventuelles.
+        reg_delete_url_scheme =
+            get_reg_delete_url_scheme_cmds(&app_name, &crate::fs_support::url_scheme()),
     )
 }
 
@@ -1861,7 +1918,7 @@ fn get_uninstall(kill_self: bool, uninstall_printer: bool) -> ResultType<String>
     {before_uninstall}
     {uninstall_printer_cmd}
     {uninstall_cert_cmd}
-    reg delete {subkey} /f
+    reg delete \"{subkey}\" /f
     {uninstall_amyuni_idd}
     if exist \"{path}\" rd /s /q \"{path}\"
     if exist \"{start_menu}\" rd /s /q \"{start_menu}\"
@@ -2135,10 +2192,11 @@ pub fn update_install_option(k: &str, v: &str) -> ResultType<()> {
     if ![REG_NAME_INSTALL_PRINTER].contains(&k) || !["0", "1"].contains(&v) {
         return Ok(());
     }
-    let app_name = crate::get_app_name();
-    let ext = app_name.to_lowercase();
-    let cmds =
-        format!("chcp 65001 && reg add HKEY_CLASSES_ROOT\\.{ext} /f /v {k} /t REG_SZ /d \"{v}\"");
+    // FS Support : extension sans espace (« .fs-support »), clé entre guillemets.
+    let ext = crate::fs_support::url_scheme();
+    let cmds = format!(
+        "chcp 65001 && reg add \"HKEY_CLASSES_ROOT\\.{ext}\" /f /v {k} /t REG_SZ /d \"{v}\""
+    );
     run_cmds(cmds, false, "update_install_option")?;
     Ok(())
 }
@@ -3416,6 +3474,25 @@ fn get_directory_size_kb(path: &str) -> u64 {
     total_size / 1024
 }
 
+// FS Support : valeurs d'identité de l'entrée « Applications installées » d'une installation
+// EXE, les mêmes que celles écrites par `install_me`. Avant ce correctif, `reg add` sans
+// guillemets échouait sur « ...\Uninstall\FS Support » : sur les postes déjà installés, l'entrée
+// n'existe pas et Windows ne propose aucun désinstalleur. `update_me` la réécrit donc en entier
+// (versions, taille et icône restent écrites par son `get_reg_cmd`). `nested_exe` est déjà passé
+// par `escape_nested_cmd_ampersands`.
+fn get_uninstall_entry_cmds(subkey: &str, app_name: &str, path: &str, nested_exe: &str) -> String {
+    format!(
+        "
+reg add \"{subkey}\" /f
+reg add \"{subkey}\" /f /v DisplayName /t REG_SZ /d \"{app_name}\"
+reg add \"{subkey}\" /f /v InstallLocation /t REG_SZ /d \"{path}\"
+reg add \"{subkey}\" /f /v Publisher /t REG_SZ /d \"{app_name}\"
+reg add \"{subkey}\" /f /v UninstallString /t REG_SZ /d \"\\\"{nested_exe}\\\" --uninstall\"
+reg add \"{subkey}\" /f /v WindowsInstaller /t REG_DWORD /d 0
+"
+    )
+}
+
 pub fn update_me(debug: bool) -> ResultType<()> {
     let app_name = crate::get_app_name();
     let src_exe = std::env::current_exe()?.to_string_lossy().to_string();
@@ -3426,6 +3503,22 @@ pub fn update_me(debug: bool) -> ResultType<()> {
     }
     let is_msi = is_msi_installed().ok();
     let reg_msi_key = get_reg_msi_key(&subkey, is_msi)?;
+    // FS Support : une installation EXE est réparée à chaque mise à jour — entrée de
+    // désinstallation complète (`get_uninstall_entry_cmds`) et clés du schéma d'URL
+    // (`get_reg_url_scheme_cmds`). Jamais pour une installation MSI : Windows Installer possède
+    // alors l'entrée et ces clés. `subkey` doit être la clé de désinstallation propre à
+    // l'application, celle qu'écrit `install_me` (vue 64 ou 32 bits) ; une ancienne clé IS1
+    // n'est pas touchée. Quand la clé manque, `get_valid_subkey` renvoie justement celle-ci.
+    let repair_exe_install = is_msi != Some(true)
+        && reg_msi_key.is_none()
+        && (subkey == get_subkey(&app_name, false) || subkey == get_subkey(&app_name, true));
+    if repair_exe_install {
+        // Ces valeurs entrent dans le script cmd.exe : mêmes contrôles qu'à l'installation,
+        // faits avant d'arrêter le moindre processus.
+        for value in [&path, &exe] {
+            validate_install_value(value)?;
+        }
+    }
 
     let app_exe_name = &format!("{}.exe", &app_name);
     // NOTE: The pids below are matched by command line, which can silently come
@@ -3487,24 +3580,25 @@ pub fn update_me(debug: bool) -> ResultType<()> {
         version_build: &str,
         size: u64,
     ) -> String {
+        // FS Support : `subkey` entre guillemets (« ...\Uninstall\FS Support »).
         let reg_display_icon = if is_msi.unwrap_or(false) {
             "".to_string()
         } else {
             format!(
-                "reg add {} /f /v DisplayIcon /t REG_SZ /d \"{}\"",
+                "reg add \"{}\" /f /v DisplayIcon /t REG_SZ /d \"{}\"",
                 subkey, display_icon
             )
         };
         format!(
             "
 {reg_display_icon}
-reg add {subkey} /f /v DisplayVersion /t REG_SZ /d \"{version}\"
-reg add {subkey} /f /v Version /t REG_SZ /d \"{version}\"
-reg add {subkey} /f /v BuildDate /t REG_SZ /d \"{build_date}\"
-reg add {subkey} /f /v VersionMajor /t REG_DWORD /d {version_major}
-reg add {subkey} /f /v VersionMinor /t REG_DWORD /d {version_minor}
-reg add {subkey} /f /v VersionBuild /t REG_DWORD /d {version_build}
-reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
+reg add \"{subkey}\" /f /v DisplayVersion /t REG_SZ /d \"{version}\"
+reg add \"{subkey}\" /f /v Version /t REG_SZ /d \"{version}\"
+reg add \"{subkey}\" /f /v BuildDate /t REG_SZ /d \"{build_date}\"
+reg add \"{subkey}\" /f /v VersionMajor /t REG_DWORD /d {version_major}
+reg add \"{subkey}\" /f /v VersionMinor /t REG_DWORD /d {version_minor}
+reg add \"{subkey}\" /f /v VersionBuild /t REG_DWORD /d {version_build}
+reg add \"{subkey}\" /f /v EstimatedSize /t REG_DWORD /d {size}
         "
         )
     }
@@ -3524,11 +3618,22 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
         let reg_cmd_msi = if let Some(reg_msi_key) = &reg_msi_key {
             // This is best-effort: failure may leave a stale version in the Windows app list,
             // but should not interrupt the update.
-            format!("reg add {reg_msi_key} /f /v DisplayVersion /t REG_SZ /d \"{version}\"")
+            format!("reg add \"{reg_msi_key}\" /f /v DisplayVersion /t REG_SZ /d \"{version}\"")
         } else {
             "".to_owned()
         };
-        format!("{}{}", reg_cmd_main, reg_cmd_msi)
+        // FS Support : réparation d'une installation EXE, avant les versions (voir plus haut).
+        let reg_cmd_repair = if repair_exe_install {
+            let nested_exe = escape_nested_cmd_ampersands(&exe);
+            format!(
+                "{}{}",
+                get_uninstall_entry_cmds(&subkey, &app_name, &path, &nested_exe),
+                get_reg_url_scheme_cmds(&crate::fs_support::url_scheme(), &nested_exe)
+            )
+        } else {
+            "".to_owned()
+        };
+        format!("{}{}{}", reg_cmd_repair, reg_cmd_main, reg_cmd_msi)
     };
 
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
@@ -4861,13 +4966,111 @@ mod tests {
 
     #[test]
     fn install_app_names_enforce_ascii_command_safety() {
-        assert!(validate_install_app_name("RustDesk-Admin1").is_ok());
-        for app_name in ["", "RustDesk_Admin", "RustDesk&whoami", "RustDesk应用"] {
+        // FS Support : une espace simple entre deux caractères [a-zA-Z0-9-] est admise.
+        for app_name in [
+            "RustDesk-Admin1",
+            "FS Support",
+            "FS Support 2",
+            "FS-Solutions Support",
+            "a - b",
+        ] {
             assert!(
-                validate_install_app_name(app_name).is_err(),
-                "unsafe application name was accepted: {app_name}"
+                validate_install_app_name(app_name).is_ok(),
+                "safe application name was rejected: {app_name:?}"
             );
         }
+        for app_name in [
+            "",
+            " ",
+            "RustDesk_Admin",
+            "RustDesk&whoami",
+            "RustDesk应用",
+            "FS  Support",
+            " FS Support",
+            "FS Support ",
+            "FS\tSupport",
+            "FS\u{a0}Support",
+            "FS&Support",
+            "FS & Support",
+            "FS|Support",
+            "FS<Support",
+            "FS>Support",
+            "FS^Support",
+            "FS%Support%",
+            "FS!Support",
+            "FS\"Support",
+            "FS(Support)",
+            "FS;Support",
+            "FS_Support",
+            "FS Support\r\nwhoami",
+        ] {
+            assert!(
+                validate_install_app_name(app_name).is_err(),
+                "unsafe application name was accepted: {app_name:?}"
+            );
+        }
+    }
+
+    // FS Support : chaque `reg add` / `reg delete` généré cite sa clé entre guillemets.
+    fn assert_reg_keys_quoted(cmds: &str) {
+        let mut count = 0;
+        for line in cmds.lines().map(str::trim) {
+            if line.starts_with("reg ") {
+                count += 1;
+                assert!(
+                    line.starts_with("reg add \"") || line.starts_with("reg delete \""),
+                    "registry key is not quoted: {line}"
+                );
+            }
+        }
+        assert!(count > 0, "no registry command was generated");
+    }
+
+    #[test]
+    fn nom_app_commandes_registre_entre_guillemets() {
+        let exe = r"C:\Program Files\FS Support\FS Support.exe";
+        let nested_exe = escape_nested_cmd_ampersands(exe);
+
+        let entry = get_uninstall_entry_cmds(
+            &get_subkey("FS Support", false),
+            "FS Support",
+            r"C:\Program Files\FS Support",
+            &nested_exe,
+        );
+        assert_reg_keys_quoted(&entry);
+        assert!(entry.contains(
+            r#"reg add "HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\FS Support" /f"#
+        ));
+        assert!(entry.contains(r#"/v DisplayName /t REG_SZ /d "FS Support""#));
+        assert!(entry.contains(r#"/v Publisher /t REG_SZ /d "FS Support""#));
+        assert!(entry.contains(r#"/v InstallLocation /t REG_SZ /d "C:\Program Files\FS Support""#));
+        assert!(entry.contains(
+            r#"/v UninstallString /t REG_SZ /d "\"C:\Program Files\FS Support\FS Support.exe\" --uninstall""#
+        ));
+        assert!(entry.contains("/v WindowsInstaller /t REG_DWORD /d 0"));
+
+        let scheme = get_reg_url_scheme_cmds("fs-support", &nested_exe);
+        assert_reg_keys_quoted(&scheme);
+        assert!(scheme.contains(
+            r#"reg add "HKEY_CLASSES_ROOT\fs-support" /f /v "URL Protocol" /t REG_SZ /d """#
+        ));
+        assert!(scheme.contains(
+            r#"reg add "HKEY_CLASSES_ROOT\.fs-support\shell\open\command" /f /ve /t REG_SZ /d "\"C:\Program Files\FS Support\FS Support.exe\" --play \"%%1\"""#
+        ));
+        assert!(scheme.contains(
+            r#"reg add "HKEY_CLASSES_ROOT\.fs-support\DefaultIcon" /f /ve /t REG_SZ  /d "\"C:\Program Files\FS Support\FS Support.exe\",0""#
+        ));
+
+        let delete = get_reg_delete_url_scheme_cmds("FS Support", "fs-support");
+        assert_reg_keys_quoted(&delete);
+        assert!(delete.contains(r#"reg delete "HKEY_CLASSES_ROOT\.fs-support" /f"#));
+        assert!(delete.contains(r#"reg delete "HKEY_CLASSES_ROOT\fs-support" /f"#));
+        assert!(delete.contains(r#"reg delete "HKEY_CLASSES_ROOT\.fs support" /f > nul 2>&1"#));
+        assert!(delete.contains(r#"reg delete "HKEY_CLASSES_ROOT\fs support" /f > nul 2>&1"#));
+        // RustDesk : nom en minuscules et schéma identiques, aucune ancienne clé à supprimer.
+        let delete = get_reg_delete_url_scheme_cmds("RustDesk", "rustdesk");
+        assert_reg_keys_quoted(&delete);
+        assert!(!delete.contains("> nul"));
     }
 
     #[test]

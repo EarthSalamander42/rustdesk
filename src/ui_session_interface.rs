@@ -1867,7 +1867,8 @@ impl<T: InvokeUiSession> Interface for Session<T> {
         {
             let mut path = std::env::temp_dir();
             path.push(self.get_id());
-            let path = path.with_extension(crate::get_app_name().to_lowercase());
+            // FS Support : extension enregistrée à l'installation (« .fs-support », sans espace).
+            let path = path.with_extension(crate::fs_support::url_scheme());
             std::fs::File::create(&path).ok();
             if let Some(path) = path.to_str() {
                 crate::platform::windows::add_recent_document(&path);
