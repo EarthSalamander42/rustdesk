@@ -257,9 +257,13 @@ class FsCompanyGroup extends StatefulWidget {
     this.initiallyOpen,
     this.onToggle,
     this.bodyBuilder,
+    this.trailing,
   });
 
   final FsCompany company;
+
+  /// Fin de l'en-tête (menu de gestion de l'entreprise, par exemple).
+  final Widget? trailing;
   final Widget Function(FsDevice d) rowBuilder;
 
   /// Corps du groupe à la place de la pile de lignes (vue en cartes, par exemple).
@@ -314,6 +318,7 @@ class _FsCompanyGroupState extends State<FsCompanyGroup> with SingleTickerProvid
               const Spacer(),
               if (on > 0) ...[FsDot(color: t.on), const SizedBox(width: 6)],
               FsText(on > 0 ? FsStrings.nOnline(on) : FsStrings.noneOnline, style: FsType.sans(12, FontWeight.w400, color: t.muted)),
+              if (widget.trailing != null) ...[const SizedBox(width: 6), widget.trailing!],
               const SizedBox(width: 12),
             ]),
           ),
@@ -377,9 +382,13 @@ class FsGroupedDeviceList extends StatelessWidget {
     this.onToggle,
     this.controller,
     this.bodyBuilder,
+    this.headerTrailing,
   });
 
   final Widget Function(List<FsDevice> devices)? bodyBuilder;
+
+  /// Fin de l'en-tête de chaque groupe (menu de gestion de l'entreprise).
+  final Widget Function(FsCompany c)? headerTrailing;
   final List<FsCompany> companies;
   final Widget Function(FsDevice d) rowBuilder;
   final bool? Function(FsCompany c)? isOpen;
@@ -402,6 +411,7 @@ class FsGroupedDeviceList extends StatelessWidget {
               initiallyOpen: isOpen?.call(c),
               bodyBuilder: bodyBuilder,
               onToggle: onToggle == null ? null : (o) => onToggle!(c, o),
+              trailing: headerTrailing?.call(c),
             );
           },
         ),

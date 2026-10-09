@@ -37,6 +37,7 @@ class FsStrings {
   static const String byCompany = 'Par entreprise';
   static const String list = 'Liste';
   static const String cards = 'Cartes';
+  static const String tiles = 'Tuiles compactes';
   static const String sort = 'Trier';
   static const String colDevice = 'Appareil';
   static const String colId = 'ID';

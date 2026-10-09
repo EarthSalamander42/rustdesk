@@ -173,13 +173,17 @@ class FsPanelHead extends StatelessWidget {
   }
 }
 
-/// Outils de la liste : « Par entreprise », liste/cartes, tri.
+/// Outils de la liste : « Par entreprise », liste / tuiles compactes / cartes, tri.
 class FsListTools extends StatelessWidget {
-  const FsListTools({super.key, required this.byCompany, this.onByCompany, this.listView = true, this.onList, this.onCards, this.onSort, this.extra = const []});
+  const FsListTools({super.key, required this.byCompany, this.onByCompany, this.listView = true, this.tileView = false, this.onList, this.onTiles, this.onCards, this.onSort, this.extra = const []});
   final bool byCompany;
   final VoidCallback? onByCompany;
   final bool listView;
+
+  /// Tuiles compactes (mode « tile » de RustDesk) ; les cartes sont actives quand ni liste ni tuiles.
+  final bool tileView;
   final VoidCallback? onList;
+  final VoidCallback? onTiles;
   final VoidCallback? onCards;
   final void Function(Offset globalPosition)? onSort;
   final List<Widget> extra;
@@ -191,7 +195,11 @@ class FsListTools extends StatelessWidget {
         const SizedBox(width: 6 + 6),
         FsIconButton(icon: Icons.view_list_rounded, tooltip: FsStrings.list, on: listView, onPressed: onList),
         const SizedBox(width: 6),
-        FsIconButton(icon: Icons.grid_view_rounded, tooltip: FsStrings.cards, on: !listView, onPressed: onCards),
+        if (onTiles != null) ...[
+          FsIconButton(icon: Icons.view_module_rounded, tooltip: FsStrings.tiles, on: tileView, onPressed: onTiles),
+          const SizedBox(width: 6),
+        ],
+        FsIconButton(icon: Icons.grid_view_rounded, tooltip: FsStrings.cards, on: !listView && !tileView, onPressed: onCards),
         const SizedBox(width: 6),
         Builder(
           builder: (bctx) => FsIconButton(

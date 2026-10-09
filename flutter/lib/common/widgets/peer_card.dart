@@ -95,49 +95,28 @@ class _PeerCardState extends State<_PeerCard>
 
   Widget _buildLandscape() {
     final peer = super.widget.peer;
-    // FS Support : en mode liste, ligne filetée de l'Atelier (lib/fs/fs_peer_row.dart).
+    // FS Support : ligne filetée (liste), carte ou tuile compacte de l'Atelier (lib/fs/fs_peer_row.dart) ;
+    // les cartes pastel de RustDesk (couleur tirée de l'ID) ne sont plus utilisées sur bureau.
+    final PeerTabModel m = Provider.of(context);
+    void more(Offset p) {
+      _menuPos = RelativeRect.fromLTRB(p.dx, p.dy, p.dx, p.dy);
+      _showPeerMenu(peer.id);
+    }
+
     if (peerCardUiType.value == PeerUiType.list) {
-      final PeerTabModel m = Provider.of(context);
       return fsPeerRow(context, peer,
           tabModel: m,
           onConnect: () => widget.connect(context, peer.id),
-          onMore: (p) {
-            _menuPos = RelativeRect.fromLTRB(p.dx, p.dy, p.dx, p.dy);
-            _showPeerMenu(peer.id);
-          });
+          onMore: more);
     }
-    var deco = Rx<BoxDecoration?>(
-      BoxDecoration(
-        border: Border.all(color: Colors.transparent, width: _borderWidth),
-        borderRadius: BorderRadius.circular(
-          peerCardUiType.value == PeerUiType.grid ? _cardRadius : _tileRadius,
-        ),
-      ),
-    );
-    return MouseRegion(
-      onEnter: (evt) {
-        deco.value = BoxDecoration(
-          border: Border.all(
-              color: Theme.of(context).colorScheme.primary,
-              width: _borderWidth),
-          borderRadius: BorderRadius.circular(
-            peerCardUiType.value == PeerUiType.grid ? _cardRadius : _tileRadius,
-          ),
-        );
-      },
-      onExit: (evt) {
-        deco.value = BoxDecoration(
-          border: Border.all(color: Colors.transparent, width: _borderWidth),
-          borderRadius: BorderRadius.circular(
-            peerCardUiType.value == PeerUiType.grid ? _cardRadius : _tileRadius,
-          ),
-        );
-      },
-      child: gestureDetector(
-          child: Obx(() => peerCardUiType.value == PeerUiType.grid
-              ? _buildPeerCard(context, peer, deco)
-              : _buildPeerTile(context, peer, deco))),
-    );
+    return fsPeerCard(context, peer,
+        tabModel: m,
+        compact: peerCardUiType.value == PeerUiType.tile,
+        onConnect: () => widget.connect(context, peer.id),
+        onMore: more,
+        leading: m.multiSelectionMode
+            ? checkBoxOrActionMoreLandscape(peer, isTile: true)
+            : null);
   }
 
   bool _showNote(Peer peer) {

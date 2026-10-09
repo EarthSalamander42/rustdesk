@@ -11,6 +11,7 @@ export 'src/theme.dart';
 export 'src/tokens.dart';
 export 'src/typography.dart';
 export 'src/widgets/android.dart';
+export 'src/widgets/cards.dart';
 export 'src/widgets/devices.dart';
 export 'src/widgets/home.dart';
 export 'src/widgets/primitives.dart';

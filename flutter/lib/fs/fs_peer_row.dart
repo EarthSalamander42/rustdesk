@@ -70,6 +70,35 @@ FsDevice fsDeviceOf(Peer p) {
   );
 }
 
+/// Carte (ou tuile compacte) d'appareil de l'Atelier pour un pair RustDesk.
+Widget fsPeerCard(
+  BuildContext context,
+  Peer peer, {
+  required PeerTabModel tabModel,
+  required VoidCallback onConnect,
+  required void Function(Offset globalPosition) onMore,
+  bool compact = false,
+  Widget? leading,
+}) {
+  final multi = tabModel.multiSelectionMode;
+  final selected = multi ? tabModel.isPeerSelected(peer.id) : fsSelectedPeerId.value == peer.id;
+  final actions = FsDeviceActions(
+    onSelect: (_) {
+      if (multi) {
+        tabModel.select(peer);
+      } else {
+        fsSelectedPeerId.value = peer.id;
+      }
+    },
+    onConnect: (_) => onConnect(),
+    onMore: (_, pos) => onMore(pos),
+  );
+  final device = fsDeviceOf(peer);
+  return compact
+      ? FsDeviceTile(device: device, selected: selected, actions: actions, allowOffline: true, leading: leading)
+      : FsDeviceCard(device: device, selected: selected, actions: actions, allowOffline: true, leading: leading);
+}
+
 /// Ligne d'appareil de l'Atelier pour un pair RustDesk.
 Widget fsPeerRow(
   BuildContext context,
