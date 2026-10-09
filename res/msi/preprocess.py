@@ -208,7 +208,9 @@ def gen_auto_component(app_name, dist_dir, template=False):
 
 
 def build_pre_vars(args, dist_dir):
-    product_lower = args.app_name.lower()
+    # FS Support : schéma d'URL et extension sans espace (« FS Support » -> « fs-support »),
+    # comme fs_support::url_scheme() côté Rust.
+    product_lower = "-".join(args.app_name.lower().split())
     reg_key_root = f".{product_lower}"
 
     return {

@@ -1167,9 +1167,11 @@ pub fn is_rustdesk() -> bool {
     hbb_common::config::APP_NAME.read().unwrap().eq("RustDesk")
 }
 
+// FS Support : schéma sans espace (« fs-support:// »), le même que celui enregistré sous
+// HKEY_CLASSES_ROOT à l'installation. « RustDesk » donne toujours « rustdesk:// ».
 #[inline]
 pub fn get_uri_prefix() -> String {
-    format!("{}://", get_app_name().to_lowercase())
+    format!("{}://", crate::fs_support::url_scheme())
 }
 
 #[cfg(target_os = "macos")]
