@@ -197,9 +197,156 @@ pub fn update_file_name() -> Option<String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Réglages de l'Atelier (09/10/2026).
+//
+// Les entreprises de l'accueil (`fs-company-*`, `fs-group-by-company`) étaient rangées dans les
+// options Flutter de `<application>_local.toml`. Or `LocalConfig` (hbb_common) lit ce fichier une
+// seule fois, au démarrage de chaque processus, et CHAQUE écriture le réenregistre en entier depuis
+// cette copie en mémoire. Un autre processus FS Support lancé avant le changement (gestionnaire de
+// connexions, page d'installation, ancienne version encore ouverte, barre des tâches…) qui
+// enregistre ensuite n'importe quel réglage local (position de fenêtre, dernier ID…) efface donc
+// les entreprises ajoutées entre-temps.
+//
+// Ces réglages ont désormais leur propre fichier, `<application>_atelier.json` à côté des autres,
+// relu à chaque lecture et à chaque écriture ; seule la clé modifiée change, et le fichier est
+// remplacé d'un bloc (écriture dans un fichier temporaire puis renommage). Une valeur vide y est
+// gardée : sinon l'ancienne valeur de `_local.toml`, lue en repli tant que la clé n'a jamais été
+// écrite ici (reprise des réglages existants), reviendrait.
+// ---------------------------------------------------------------------------
+
+/// Préfixe des clés de l'Atelier passées par `main_get_common` / `main_set_common`.
+pub const ATELIER_OPTION_PREFIX: &str = "fs-atelier:";
+
+lazy_static::lazy_static! {
+    /// Lecture-modification-écriture du fichier sans chevauchement dans un même processus.
+    static ref ATELIER_LOCK: std::sync::Mutex<()> = Default::default();
+}
+
+/// Clés acceptées : `fs-…`, lettres, chiffres et tirets.
+fn is_atelier_key(k: &str) -> bool {
+    k.starts_with("fs-")
+        && k.len() <= 64
+        && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+fn atelier_file() -> std::path::PathBuf {
+    Config::path(format!("{}_atelier.json", crate::get_app_name()))
+}
+
+fn read_atelier_options(path: &std::path::Path) -> std::collections::BTreeMap<String, String> {
+    match std::fs::read_to_string(path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
+            log::warn!("Réglages de l'Atelier illisibles ({}) : {}", path.display(), e);
+            Default::default()
+        }),
+        Err(_) => Default::default(),
+    }
+}
+
+fn write_atelier_options(
+    path: &std::path::Path,
+    options: &std::collections::BTreeMap<String, String>,
+) -> std::io::Result<()> {
+    let content = serde_json::to_string_pretty(options)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, path).map_err(|e| {
+        std::fs::remove_file(&tmp).ok();
+        e
+    })
+}
+
+fn get_atelier_option_in(path: &std::path::Path, k: &str) -> Option<String> {
+    read_atelier_options(path).get(k).cloned()
+}
+
+fn set_atelier_option_in(path: &std::path::Path, k: &str, v: &str) -> std::io::Result<()> {
+    let _guard = ATELIER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut options = read_atelier_options(path);
+    if options.get(k).map(String::as_str) == Some(v) {
+        return Ok(());
+    }
+    options.insert(k.to_owned(), v.to_owned());
+    write_atelier_options(path, &options)
+}
+
+/// Valeur d'un réglage de l'Atelier ; à défaut, ancienne valeur de `_local.toml`.
+pub fn get_atelier_option(k: &str) -> String {
+    if !is_atelier_key(k) {
+        return String::new();
+    }
+    get_atelier_option_in(&atelier_file(), k)
+        .unwrap_or_else(|| hbb_common::config::LocalConfig::get_flutter_option(k))
+}
+
+pub fn set_atelier_option(k: &str, v: &str) {
+    if !is_atelier_key(k) {
+        log::warn!("Réglage de l'Atelier refusé : {:?}", k);
+        return;
+    }
+    if let Err(e) = set_atelier_option_in(&atelier_file(), k, v) {
+        log::error!("Réglage de l'Atelier {} non enregistré : {}", k, e);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fs_atelier_cles_acceptees() {
+        assert!(is_atelier_key("fs-company-map"));
+        assert!(is_atelier_key("fs-group-by-company"));
+        assert!(!is_atelier_key("company-map"));
+        assert!(!is_atelier_key("fs-../x"));
+        assert!(!is_atelier_key("fs-a b"));
+        assert!(!is_atelier_key(""));
+    }
+
+    #[test]
+    fn fs_atelier_seule_la_cle_modifiee_change() {
+        let dir = std::env::temp_dir().join(format!("fs-atelier-test-{}", std::process::id()));
+        let path = dir.join("FS Support_atelier.json");
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(get_atelier_option_in(&path, "fs-company-map"), None);
+
+        set_atelier_option_in(&path, "fs-company-map", r#"{"123":"ACME"}"#).unwrap();
+        set_atelier_option_in(&path, "fs-company-list", r#"["ACME"]"#).unwrap();
+        // Un autre processus a ajouté une clé entre-temps : elle survit à l'écriture suivante.
+        let mut on_disk = read_atelier_options(&path);
+        on_disk.insert("fs-company-collapsed".to_owned(), r#"["acme"]"#.to_owned());
+        write_atelier_options(&path, &on_disk).unwrap();
+        set_atelier_option_in(&path, "fs-company-list", r#"["ACME","Durand"]"#).unwrap();
+
+        assert_eq!(
+            get_atelier_option_in(&path, "fs-company-map").as_deref(),
+            Some(r#"{"123":"ACME"}"#)
+        );
+        assert_eq!(
+            get_atelier_option_in(&path, "fs-company-collapsed").as_deref(),
+            Some(r#"["acme"]"#)
+        );
+        assert_eq!(
+            get_atelier_option_in(&path, "fs-company-list").as_deref(),
+            Some(r#"["ACME","Durand"]"#)
+        );
+        // Effacer garde la clé (vide) : l'ancienne valeur de `_local.toml` ne revient pas.
+        set_atelier_option_in(&path, "fs-company-map", "").unwrap();
+        assert_eq!(get_atelier_option_in(&path, "fs-company-map").as_deref(), Some(""));
+        // Pas de fichier temporaire laissé derrière.
+        let leftovers = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(leftovers, 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn versions_de_mise_a_jour() {
