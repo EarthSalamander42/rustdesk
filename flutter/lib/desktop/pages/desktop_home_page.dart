@@ -14,6 +14,7 @@ import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
 import 'package:flutter_hbb/fs/fs_desktop_home.dart';
+import 'package:flutter_hbb/fs/fs_mac_permissions.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -512,6 +513,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           bind.mainUpdateMe();
         });
       }
+    } else if (isMacOS &&
+        kFsAtelierHome &&
+        !bind.isIncomingOnly() &&
+        fsMacPermissionsMissing()) {
+      // FS Support : l'assistant d'autorisations de l'Atelier (fs/fs_mac_permissions.dart) est à l'écran.
+      // Pas de carte « Permissions » en double, ni de carte « service » avant la fin des autorisations.
     } else if (isMacOS) {
       final isOutgoingOnly = bind.isOutgoingOnly();
       if (!(isOutgoingOnly || bind.mainIsCanScreenRecording(prompt: false))) {

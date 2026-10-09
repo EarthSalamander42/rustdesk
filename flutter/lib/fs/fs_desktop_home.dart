@@ -5,6 +5,7 @@
 // Tout le comportement reste celui de RustDesk : ID et mot de passe (`ServerModel`), connexion (`connect`),
 // vues d'appareils (`RecentPeersView`…, menus, état en ligne), carnet d'adresses, découverte locale,
 // cartes d'aide (mise à jour, installation) et état du service (`OnlineStatusWidget`, monté hors écran).
+// Sur macOS, l'assistant d'autorisations (`fs_mac_permissions.dart`) se pose au-dessus du champ de connexion.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fs_ui/fs_ui.dart';
@@ -25,6 +26,7 @@ import '../models/peer_tab_model.dart';
 import '../models/platform_model.dart';
 import '../models/server_model.dart';
 import '../models/state_model.dart';
+import 'fs_mac_permissions.dart';
 import 'fs_peer_row.dart';
 
 /// Active l'accueil de l'Atelier (repli possible sur l'accueil RustDesk en passant à `false`).
@@ -404,13 +406,16 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
         actions: {_FocusSearch: CallbackAction<_FocusSearch>(onInvoke: (_) => _idFocus.requestFocus())},
         child: FsHomeView(
           rail: rail,
-          connect: FsConnectBar(
-            controller: _idController,
-            focusNode: _idFocus,
-            onChanged: (v) => peerSearchText.value = v.trim(),
-            onConnect: (v) => _connect(v),
-            onFiles: (v) => _connect(v, files: true),
-          ),
+          connect: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (isMacOS) const FsMacPermissionsWizard(),
+            FsConnectBar(
+              controller: _idController,
+              focusNode: _idFocus,
+              onChanged: (v) => peerSearchText.value = v.trim(),
+              onConnect: (v) => _connect(v),
+              onFiles: (v) => _connect(v, files: true),
+            ),
+          ]),
           panel: FsPanelSwitcher(panelKey: _panel, child: Builder(builder: _panelBody)),
           status: _status(),
         ),
