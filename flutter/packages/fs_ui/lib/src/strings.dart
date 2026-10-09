@@ -59,6 +59,23 @@ class FsStrings {
   static const String serverFs = 'Serveur FS Solutions';
   static const String startService = 'Démarrer le service';
 
+  // Installation (Windows) : bandeau en tête de l'accueil
+  static const String installEyebrow = 'Installation';
+  static const String installTitle = 'FS Support n’est pas installé sur ce poste.';
+  static const String installText =
+      'Cette copie s’arrête dès qu’on la ferme et ne peut pas agir sur les fenêtres d’administration de Windows (UAC). Installez FS Support pour un dépannage complet.';
+  static const String installButton = 'Installer FS Support sur ce poste';
+  static const String upgradeTitle = 'Une version plus ancienne de FS Support est installée sur ce poste.';
+  static const String upgradeText =
+      'Le service installé n’accepte pas cette copie téléchargée (état « Hors service », mot de passe indisponible). Mettez l’installation à jour avec cette version.';
+  static const String upgradeButton = 'Mettre à jour l’installation';
+  static const String installedTitle = 'FS Support est déjà installé sur ce poste.';
+  static const String installedText =
+      'Cette copie téléchargée ne peut pas utiliser le service installé (état « Hors service », mot de passe indisponible). Fermez-la, puis ouvrez FS Support depuis le menu Démarrer.';
+  static const String closeCopy = 'Fermer cette copie';
+  static const String installNote =
+      'Windows demande une autorisation. FS Support s’ouvre ensuite depuis son installation et cette copie se ferme ; sinon, ouvrez FS Support depuis le menu Démarrer.';
+
   // Emplacements prévus
   static const String slotEyebrow = 'Emplacement prévu · rien n’est branché';
   static const String ticketsTitle = 'Les demandes de support du SaaS FS, ici.';
