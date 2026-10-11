@@ -3501,6 +3501,14 @@ pub fn update_me(debug: bool) -> ResultType<()> {
     if !is_installed {
         bail!("{} is not installed.", &app_name);
     }
+    // FS Support : d'où vient la copie et où elle est installée (diagnostic des mises à jour).
+    log::info!(
+        "update_me : copie de {:?} (version {}, compilé le {}) vers {:?}",
+        src_exe,
+        crate::fs_support::product_version(),
+        crate::BUILD_DATE,
+        exe
+    );
     let is_msi = is_msi_installed().ok();
     let reg_msi_key = get_reg_msi_key(&subkey, is_msi)?;
     // FS Support : une installation EXE est réparée à chaque mise à jour — entrée de
@@ -3995,6 +4003,15 @@ pub fn handle_custom_client_staging_dir_before_update(
 
 // Used for auto update and manual update in the main window.
 pub fn update_to(file: &str) -> ResultType<()> {
+    // FS Support : le paquet téléchargé se décompresse dans son propre dossier
+    // (`%LOCALAPPDATA%\FS Support\app-<version>-<build>`), puis lance `--update` avec le nouveau
+    // binaire, même si une copie portable plus ancienne tourne encore.
+    log::info!(
+        "update_to : lancement de {:?} --update depuis {:?} (version {})",
+        file,
+        std::env::current_exe().unwrap_or_default(),
+        crate::fs_support::product_version()
+    );
     if file.ends_with(".exe") {
         let custom_client_staging_dir = get_custom_client_staging_dir();
         if crate::is_custom_client() {

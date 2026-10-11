@@ -6,6 +6,11 @@
 // groupe : ajouter, renommer (fusionne si le nom existe déjà), supprimer (ses appareils repassent
 // dans « Non classés »).
 // Entreprises, rattachements et état replié/déplié sont propres à ce poste (options locales).
+//
+// Stockage (09/10/2026) : fichier `<application>_atelier.json`, relu à chaque accès et modifié clé
+// par clé (`src/fs_support.rs`, « Réglages de l'Atelier »), et non plus les options Flutter de
+// `_local.toml`, que tout autre processus FS Support réenregistre en entier depuis sa propre copie
+// (d'où des entreprises « perdues »). Les anciennes valeurs de `_local.toml` servent de reprise.
 
 import 'dart:convert';
 
@@ -41,14 +46,22 @@ bool _loaded = false;
 
 String _key(String name) => name.trim().toLowerCase();
 
+/// Préfixe des réglages de l'Atelier pour `mainGetCommonSync` / `mainSetCommon`
+/// (`ATELIER_OPTION_PREFIX` dans `src/fs_support.rs`).
+const String _kAtelierPrefix = 'fs-atelier:';
+
+String _getOption(String k) => bind.mainGetCommonSync(key: '$_kAtelierPrefix$k');
+
+Future<void> _setOption(String k, String v) =>
+    bind.mainSetCommon(key: '$_kAtelierPrefix$k', value: v);
+
 void fsLoadCompanyOptions() {
   if (_loaded) return;
   _loaded = true;
   // Atelier : regroupement par entreprise actif tant qu'il n'a pas été coupé à la main.
-  fsGroupByCompany.value =
-      bind.getLocalFlutterOption(k: kOptionFsGroupByCompany) != 'N';
+  fsGroupByCompany.value = _getOption(kOptionFsGroupByCompany) != 'N';
   try {
-    final raw = bind.getLocalFlutterOption(k: kOptionFsCompanyMap);
+    final raw = _getOption(kOptionFsCompanyMap);
     if (raw.isNotEmpty) {
       _companyMap = Map<String, String>.from(jsonDecode(raw) as Map);
     }
@@ -56,7 +69,7 @@ void fsLoadCompanyOptions() {
     _companyMap = {};
   }
   try {
-    final raw = bind.getLocalFlutterOption(k: kOptionFsCompanyList);
+    final raw = _getOption(kOptionFsCompanyList);
     if (raw.isNotEmpty) {
       _companies = List<String>.from(jsonDecode(raw) as List);
     }
@@ -68,7 +81,7 @@ void fsLoadCompanyOptions() {
     _addToList(c);
   }
   try {
-    final raw = bind.getLocalFlutterOption(k: kOptionFsCompanyCollapsed);
+    final raw = _getOption(kOptionFsCompanyCollapsed);
     if (raw.isNotEmpty) {
       _collapsed = Set<String>.from(jsonDecode(raw) as List);
     }
@@ -79,8 +92,7 @@ void fsLoadCompanyOptions() {
 
 Future<void> fsSetGroupByCompany(bool value) async {
   fsGroupByCompany.value = value;
-  await bind.setLocalFlutterOption(
-      k: kOptionFsGroupByCompany, v: value ? 'Y' : 'N');
+  await _setOption(kOptionFsGroupByCompany, value ? 'Y' : 'N');
 }
 
 bool _addToList(String company) {
@@ -98,12 +110,9 @@ String _canonical(String company) {
 }
 
 Future<void> _save() async {
-  await bind.setLocalFlutterOption(
-      k: kOptionFsCompanyMap, v: jsonEncode(_companyMap));
-  await bind.setLocalFlutterOption(
-      k: kOptionFsCompanyList, v: jsonEncode(_companies));
-  await bind.setLocalFlutterOption(
-      k: kOptionFsCompanyCollapsed, v: jsonEncode(_collapsed.toList()));
+  await _setOption(kOptionFsCompanyMap, jsonEncode(_companyMap));
+  await _setOption(kOptionFsCompanyList, jsonEncode(_companies));
+  await _setOption(kOptionFsCompanyCollapsed, jsonEncode(_collapsed.toList()));
   fsCompanyVersion.value++;
 }
 
@@ -179,8 +188,7 @@ Future<void> _toggleCollapsed(String company) async {
   } else {
     _collapsed.add(key);
   }
-  await bind.setLocalFlutterOption(
-      k: kOptionFsCompanyCollapsed, v: jsonEncode(_collapsed.toList()));
+  await _setOption(kOptionFsCompanyCollapsed, jsonEncode(_collapsed.toList()));
   fsCompanyVersion.value++;
 }
 

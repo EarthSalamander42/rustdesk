@@ -228,6 +228,15 @@ pub fn core_main() -> Option<Vec<String>> {
                 }
                 return None;
             } else if args[0] == "--update" {
+                // FS Support : chemin et version de l'exécutable qui applique la mise à jour. Une
+                // copie décompressée périmée relançait l'ancien binaire : le journal le montre.
+                log::info!(
+                    "--update exécuté par {:?}, version {} (RustDesk {}, compilé le {})",
+                    std::env::current_exe().unwrap_or_default(),
+                    crate::fs_support::product_version(),
+                    crate::VERSION,
+                    crate::BUILD_DATE
+                );
                 if config::is_disable_installation() {
                     return None;
                 }

@@ -2678,6 +2678,14 @@ pub fn main_get_printer_names() -> SyncReturn<String> {
 }
 
 pub fn main_get_common(key: String) -> String {
+    // FS Support : réglages de l'Atelier hors de `_local.toml` (voir `fs_support::get_atelier_option`).
+    if let Some(k) = key.strip_prefix(crate::fs_support::ATELIER_OPTION_PREFIX) {
+        return crate::fs_support::get_atelier_option(k);
+    }
+    // FS Support : copie téléchargée ou exécutable installé (cartes d'installation de l'accueil).
+    if key == "fs-cur-exe-is-installed" {
+        return crate::ui_interface::is_cur_exe_the_installed().to_string();
+    }
     if key == "is-printer-installed" {
         #[cfg(target_os = "windows")]
         {
@@ -2787,6 +2795,11 @@ pub fn main_get_common_sync(key: String) -> SyncReturn<String> {
 }
 
 pub fn main_set_common(_key: String, _value: String) {
+    // FS Support : réglages de l'Atelier hors de `_local.toml` (voir `fs_support::set_atelier_option`).
+    if let Some(k) = _key.strip_prefix(crate::fs_support::ATELIER_OPTION_PREFIX) {
+        crate::fs_support::set_atelier_option(k, &_value);
+        return;
+    }
     #[cfg(target_os = "windows")]
     if _key == "install-printer" && crate::platform::is_win_10_or_greater() {
         std::thread::spawn(move || {

@@ -567,9 +567,24 @@ pub fn is_installed_lower_version() -> bool {
     return false;
     #[cfg(windows)]
     {
+        // FS Support : seule une autre copie (paquet téléchargé) se compare à l'installation.
+        // L'exécutable installé ne se propose jamais sa propre mise à jour, même quand une
+        // ancienne installation n'a pas écrit `BuildDate` (comparée alors à "", donc plus ancienne).
+        if crate::platform::windows::is_cur_exe_the_installed() {
+            return false;
+        }
         let b = crate::platform::windows::get_reg("BuildDate");
         return crate::BUILD_DATE.cmp(&b).is_gt();
     }
+}
+
+/// FS Support : l'exécutable en cours est-il celui de l'installation ? (Windows seulement.)
+#[inline]
+pub fn is_cur_exe_the_installed() -> bool {
+    #[cfg(windows)]
+    return crate::platform::windows::is_cur_exe_the_installed();
+    #[cfg(not(windows))]
+    return false;
 }
 
 #[inline]

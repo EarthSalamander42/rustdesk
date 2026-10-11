@@ -20,6 +20,7 @@ import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_hbb/utils/platform_channel.dart';
+import 'package:fs_ui/fs_ui.dart' show FsInstallBanner, FsStrings;
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -66,7 +67,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       return _buildBlock(
           child: FsDesktopHome(
               warning: bind.isOutgoingOnly() ? null : buildPresetPasswordWarning(),
-              helpCards: Obx(() => buildHelpCards(stateGlobal.updateUrl.value))));
+              helpCards: Obx(() => buildHelpCards(stateGlobal.updateUrl.value)),
+              banner: buildFsInstallBanner()));
     }
     return _buildBlock(
         child: Row(
@@ -498,14 +500,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
 
     if (isWindows && !bind.isDisableInstallation()) {
-      if (!bind.mainIsInstalled()) {
+      if (kFsAtelierHome && !bind.isIncomingOnly()) {
+        // FS Support : dans l'Atelier, installation et mise à jour de l'installation forment un
+        // bandeau en tête de la colonne principale (buildFsInstallBanner), plus dans le rail.
+      } else if (!bind.mainIsInstalled()) {
         return buildInstallCard(
             "", bind.isOutgoingOnly() ? "" : "install_tip", "Install",
             () async {
           await rustDeskWinManager.closeAllSubWindows();
           bind.mainGotoInstall();
         });
-      } else if (!bind.isCustomClient() && bind.mainIsInstalledLowerVersion()) {
+      } else if (bind.mainIsInstalledLowerVersion()) {
+        // FS Support : proposée aussi au client personnalisé ; une copie téléchargée met ainsi à
+        // jour une installation plus ancienne (jamais l'exécutable installé lui-même, voir
+        // `is_installed_lower_version`).
         return buildInstallCard(
             "Status", "Your installation is lower version.", "Click to upgrade",
             () async {
@@ -613,6 +621,61 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ).marginAll(14);
     }
     return Container();
+  }
+
+  /// FS Support : bandeau d'installation de l'Atelier (Windows), en tête de la colonne principale.
+  /// Remplace les cartes « Installer » et « version installée plus ancienne » du rail. Après
+  /// l'installation comme après la mise à jour (page d'installation, `install_me`), la version
+  /// installée s'ouvre et la copie téléchargée se ferme (`run_after_run_cmds`).
+  Widget buildFsInstallBanner() {
+    if (!isWindows ||
+        bind.isDisableInstallation() ||
+        bind.mainGetBuildinOption(key: kOptionHideHelpCards) == 'Y') {
+      return const SizedBox.shrink();
+    }
+    if (!bind.mainIsInstalled()) {
+      return FsInstallBanner(
+        title: FsStrings.installTitle,
+        text: FsStrings.installText,
+        action: FsStrings.installButton,
+        actionIcon: Icons.install_desktop_rounded,
+        onAction: () async {
+          await rustDeskWinManager.closeAllSubWindows();
+          bind.mainGotoInstall();
+        },
+        note: FsStrings.installNote,
+      );
+    }
+    // L'exécutable installé n'affiche rien ; une copie téléchargée, refusée par le service
+    // installé (chemin différent), explique quoi faire.
+    if (bind.mainGetCommonSync(key: 'fs-cur-exe-is-installed') == 'true') {
+      return const SizedBox.shrink();
+    }
+    if (bind.mainIsInstalledLowerVersion()) {
+      return FsInstallBanner(
+        icon: Icons.system_update_alt_rounded,
+        title: FsStrings.upgradeTitle,
+        text: FsStrings.upgradeText,
+        action: FsStrings.upgradeButton,
+        actionIcon: Icons.system_update_alt_rounded,
+        onAction: () async {
+          await rustDeskWinManager.closeAllSubWindows();
+          bind.mainUpdateMe();
+        },
+        note: FsStrings.installNote,
+      );
+    }
+    return FsInstallBanner(
+      icon: Icons.info_outline_rounded,
+      title: FsStrings.installedTitle,
+      text: FsStrings.installedText,
+      action: FsStrings.closeCopy,
+      actionIcon: Icons.logout_rounded,
+      onAction: () async {
+        await rustDeskWinManager.closeAllSubWindows();
+        exit(0);
+      },
+    );
   }
 
   Widget buildInstallCard(String title, String content, String btnText,

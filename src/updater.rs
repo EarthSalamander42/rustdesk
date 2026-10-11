@@ -321,9 +321,17 @@ fn update_new_version(update_msi: bool, version: &str, file_path: &PathBuf) {
                     ));
                     None
                 };
+                // FS Support : chemin entre guillemets (un dossier temporaire peut contenir une
+                // espace) ; le paquet lancé se décompresse dans son propre dossier et applique la
+                // mise à jour avec SON binaire (journal « --update exécuté par … »).
+                log::info!(
+                    "Mise à jour : lancement de {:?} --update (version {})",
+                    p,
+                    version
+                );
                 let update_launched = match crate::platform::launch_privileged_process(
                     session_id,
-                    &format!("{} --update", p),
+                    &format!("\"{}\" --update", p),
                 ) {
                     Ok(h) => {
                         if h.is_null() {

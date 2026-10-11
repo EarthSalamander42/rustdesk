@@ -4,7 +4,9 @@
 // l'accueil RustDesk (volet gauche + ConnectionPage + PeerTabPage) est remplacé par [FsDesktopHome].
 // Tout le comportement reste celui de RustDesk : ID et mot de passe (`ServerModel`), connexion (`connect`),
 // vues d'appareils (`RecentPeersView`…, menus, état en ligne), carnet d'adresses, découverte locale,
-// cartes d'aide (mise à jour, installation) et état du service (`OnlineStatusWidget`, monté hors écran).
+// cartes d'aide (nouvelle version, dans le rail) et état du service (`OnlineStatusWidget`, monté hors écran).
+// Sous Windows, l'installation et la mise à jour de l'installation forment un bandeau en tête de la colonne
+// principale (`FsInstallBanner`), au-dessus du champ de connexion.
 // Sur macOS, l'assistant d'autorisations (`fs_mac_permissions.dart`) se pose au-dessus du champ de connexion.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -35,10 +37,14 @@ const bool kFsAtelierHome = true;
 const String _kOptionFsHomePanel = 'fs-home-panel';
 
 class FsDesktopHome extends StatefulWidget {
-  const FsDesktopHome({super.key, this.helpCards, this.warning});
+  const FsDesktopHome({super.key, this.helpCards, this.warning, this.banner});
 
-  /// Cartes d'aide RustDesk (mise à jour, installation, autorisations), posées dans le rail.
+  /// Cartes d'aide RustDesk (nouvelle version, erreurs, autorisations), posées dans le rail.
   final Widget? helpCards;
+
+  /// Bandeau d'installation Windows (installer, mettre à jour l'installation), en tête de la
+  /// colonne principale : prioritaire sur tout le reste (`DesktopHomePage.buildFsInstallBanner`).
+  final Widget? banner;
 
   /// Avertissement « mot de passe prédéfini » de RustDesk.
   final Widget? warning;
@@ -407,6 +413,7 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
         child: FsHomeView(
           rail: rail,
           connect: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (widget.banner != null) widget.banner!,
             if (isMacOS) const FsMacPermissionsWizard(),
             FsConnectBar(
               controller: _idController,
