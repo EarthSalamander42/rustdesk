@@ -2800,6 +2800,14 @@ pub fn main_set_common(_key: String, _value: String) {
         crate::fs_support::set_atelier_option(k, &_value);
         return;
     }
+    // FS Support : lien `fs-support://enrol?t=…` reçu par Flutter (macOS, Android ; Windows le
+    // traite dans core_main). Hors du fil de Flutter : l'IPC du service peut attendre 1 à 2 s.
+    if _key == crate::fs_enrolment::COMMON_KEY_URI {
+        std::thread::spawn(move || {
+            crate::fs_enrolment::handle_enrol_uri(&_value);
+        });
+        return;
+    }
     #[cfg(target_os = "windows")]
     if _key == "install-printer" && crate::platform::is_win_10_or_greater() {
         std::thread::spawn(move || {

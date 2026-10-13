@@ -96,6 +96,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="rustdesk" />
+                <!-- FS Support : liens fs-support:// (enrolement du poste depuis le CRM, voir src/fs_enrolment.rs). -->
+                <data android:scheme="fs-support" />
             </intent-filter>
         </activity>
 

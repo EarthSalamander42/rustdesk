@@ -30,6 +30,7 @@ import 'package:window_size/window_size.dart' as window_size;
 
 import '../consts.dart';
 import 'common/widgets/overlay.dart';
+import 'fs/fs_enrolment.dart';
 import 'mobile/pages/file_manager_page.dart';
 import 'mobile/pages/remote_page.dart';
 import 'mobile/pages/view_camera_page.dart';
@@ -2256,6 +2257,16 @@ setEnvTerminalAdmin() {
 
 // uri link handler
 bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
+  // FS Support : lien d'enrôlement `fs-support://enrol?t=…` (voir fs/fs_enrolment.dart).
+  final enrolUri = uri ??
+      (uriString != null ? Uri.tryParse(uriString) : null) ??
+      (cmdArgs != null && cmdArgs.isNotEmpty ? Uri.tryParse(cmdArgs[0]) : null);
+  if (enrolUri != null && fsIsEnrolUri(enrolUri)) {
+    final message = fsHandleEnrolUri(enrolUri);
+    Future.delayed(const Duration(milliseconds: 300),
+        () => showToast(message, timeout: const Duration(seconds: 5)));
+    return true;
+  }
   List<String>? args;
   if (cmdArgs != null && cmdArgs.isNotEmpty) {
     args = cmdArgs;

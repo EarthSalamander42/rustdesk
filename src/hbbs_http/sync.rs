@@ -125,14 +125,20 @@ async fn start_hbbs_sync_async() {
                 // we may not be able to get the username before login after the next restart.
                 let mut v = crate::get_sysinfo();
                 let sys_username = v["username"].as_str().unwrap_or_default().to_string();
+                // FS Support : un jeton d'enrôlement en attente (nom du fichier téléchargé ou lien
+                // fs-support://enrol) force un nouvel envoi du sysinfo, même déjà accepté.
+                let enrolment_token = crate::fs_enrolment::pending_token();
                 // Though the username comparison is only necessary on Windows,
                 // we still keep the comparison on other platforms for consistency.
-                let need_upload = (!info_uploaded.uploaded || info_uploaded.username.as_ref() != Some(&sys_username)) &&
+                let need_upload = (enrolment_token.is_some() || !info_uploaded.uploaded || info_uploaded.username.as_ref() != Some(&sys_username)) &&
                     info_uploaded.last_uploaded.map(|x| x.elapsed() >= UPLOAD_SYSINFO_TIMEOUT).unwrap_or(true);
                 if need_upload {
                     v["version"] = json!(crate::VERSION);
                     v["id"] = json!(id);
                     v["uuid"] = json!(crate::encode64(hbb_common::get_uuid()));
+                    if let Some(token) = &enrolment_token {
+                        v[crate::fs_enrolment::SYSINFO_FIELD] = json!(token);
+                    }
                     let ab_name = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_NAME);
                     if !ab_name.is_empty() {
                         v[keys::OPTION_PRESET_ADDRESS_BOOK_NAME] = json!(ab_name);
@@ -179,7 +185,8 @@ async fn start_hbbs_sync_async() {
                     }
                     let v = v.to_string();
                     let mut hash = "".to_owned();
-                    if crate::is_public(&url) {
+                    // FS Support : jamais de raccourci « sysinfo inchangé » quand un jeton doit partir.
+                    if crate::is_public(&url) && enrolment_token.is_none() {
                         use sha2::{Digest, Sha256};
                         let mut hasher = Sha256::new();
                         hasher.update(url.as_bytes());
@@ -213,6 +220,10 @@ async fn start_hbbs_sync_async() {
                             if x == "SYSINFO_UPDATED" {
                                 info_uploaded = InfoUploaded::uploaded(url.clone(), id.clone(), sys_username);
                                 log::info!("sysinfo updated");
+                                // FS Support : le SaaS a reçu le jeton, il ne repartira plus.
+                                if let Some(token) = &enrolment_token {
+                                    crate::fs_enrolment::confirm_sent(token);
+                                }
                                 if !hash.is_empty() {
                                     config::Status::set("sysinfo_hash", hash);
                                     config::Status::set("sysinfo_ver", sysinfo_ver.clone());

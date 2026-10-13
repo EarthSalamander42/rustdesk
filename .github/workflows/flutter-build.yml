@@ -439,6 +439,8 @@ jobs:
           fs_tests install_values_enforce_command_safety
           # Réglages de l'Atelier (fichier dédié) et mise à jour : tout le module fs_support.
           fs_tests fs_support::
+          # Jeton d'enrôlement (nom de l'exe, lien fs-support://enrol) : tout le module fs_enrolment.
+          fs_tests fs_enrolment::
           echo "::notice title=Tests unitaires Rust Windows::durée $(( $(date +%s) - started )) s"
 
       - name: Paquet portable FS Support (compilation et tests)
