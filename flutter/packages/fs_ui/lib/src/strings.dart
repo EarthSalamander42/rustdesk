@@ -29,6 +29,8 @@ class FsStrings {
   static const String interventions = 'Interventions';
   static const String soon = 'Bientôt';
   static const String settings = 'Paramètres';
+  static const String scrollUp = 'Faire défiler vers le haut';
+  static const String scrollDown = 'Faire défiler vers le bas';
   static const String remoteControl = 'Contrôler un poste à distance';
   static const String idHint = 'ID ou nom de l’appareil — ex. 148 290 731';
   static const String connect = 'Se connecter';
@@ -169,7 +171,7 @@ class FsStrings {
   // Demande d'intervention sur site (client, sans compte)
   static const String onsiteTitle = 'Besoin d’un technicien sur place ?';
   static const String onsiteText = 'FS Solutions vous rappelle pour fixer le rendez-vous.';
-  static const String onsiteButton = 'Demander une intervention sur site';
+  static const String onsiteButton = 'Demander une intervention';
   static const String onsiteDialog = 'Intervention sur site';
   static const String onsiteReason = 'Motif de la demande';
   static const String onsiteReasonHint = 'Ce qui ne va pas, ce qu’il faut installer…';

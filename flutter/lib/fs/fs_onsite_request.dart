@@ -6,6 +6,8 @@
 // et page Tickets FS de FS Support.
 // Appel : POST <api-server>/api/assistance-sur-site (→ /fss/api/assistance-sur-site). Garde-fous côté SaaS : taille
 // bornée, 5 demandes / heure / adresse, 3 / 24 h / poste.
+// Android (14/10/2026) : la même carte sous les autorisations de l'écran « Partager mon écran » (fs_mobile_share.dart),
+// masquée en mode « Écran client ». Libellé du bouton raccourci (« Demander une intervention ») : il débordait du rail.
 
 import 'dart:convert';
 

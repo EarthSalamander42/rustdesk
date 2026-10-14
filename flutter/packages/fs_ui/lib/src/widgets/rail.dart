@@ -39,20 +39,193 @@ class FsRail extends StatelessWidget {
       duration: FsMotion.theme,
       width: FsDims.rail,
       decoration: BoxDecoration(border: Border(right: BorderSide(color: t.line))),
-      padding: const EdgeInsets.fromLTRB(20, 20, 18, 14),
+      // Marge droite 8 + 12 réservés à la barre de défilement (FsRailScroll) : même largeur utile qu'avant.
+      padding: const EdgeInsets.fromLTRB(20, 20, 8, 14),
+      // 14/10/2026 : sur un petit écran (1280×720, 1366×768 à 125-150 %), tout le haut du rail défile
+      // (barre visible, flèches et fondus quand il reste du contenu caché) ; Paramètres et crédit restent en bas.
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const FsBrand(),
-          me,
-          nav,
-          if (extra != null)
-            Expanded(child: SingleChildScrollView(padding: const EdgeInsets.only(top: 12, bottom: 12), child: extra!))
-          else
-            const Spacer(),
-          FsRailFoot(onSettings: onSettings, version: version, onCredit: onCredit),
+          Expanded(
+            child: FsRailScroll(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const FsBrand(),
+                  me,
+                  nav,
+                  if (extra != null) Padding(padding: const EdgeInsets.only(top: 12, bottom: 12), child: extra!),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: FsRailFoot(onSettings: onSettings, version: version, onCredit: onCredit),
+          ),
         ],
       ),
+    );
+  }
+}
+
+/// Zone qui défile du rail : barre de défilement large et toujours visible quand le contenu dépasse,
+/// fondu en bord et flèche cliquable (vers le bas, puis vers le haut une fois défilé) qui fait défiler
+/// en douceur. Sans débordement, rien de tout cela n'apparaît.
+class FsRailScroll extends StatefulWidget {
+  const FsRailScroll({super.key, required this.child});
+  final Widget child;
+
+  @override
+  State<FsRailScroll> createState() => FsRailScrollState();
+}
+
+class FsRailScrollState extends State<FsRailScroll> {
+  final ScrollController _c = ScrollController();
+  bool _haut = false;
+  bool _bas = false;
+
+  /// Du contenu est caché au-dessus / au-dessous (tests et captures).
+  bool get hiddenAbove => _haut;
+  bool get hiddenBelow => _bas;
+
+  @override
+  void initState() {
+    super.initState();
+    _c.addListener(_maj);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maj());
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  void _maj() {
+    if (!mounted || !_c.hasClients) return;
+    final p = _c.position;
+    final haut = p.pixels > 1;
+    final bas = p.pixels < p.maxScrollExtent - 1;
+    if (haut != _haut || bas != _bas) setState(() {
+      _haut = haut;
+      _bas = bas;
+    });
+  }
+
+  void _defiler(bool versLeBas) {
+    if (!_c.hasClients) return;
+    final p = _c.position;
+    final pas = p.viewportDimension * 0.7;
+    final cible = (p.pixels + (versLeBas ? pas : -pas)).clamp(0.0, p.maxScrollExtent);
+    final reduit = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduit) {
+      _c.jumpTo(cible);
+    } else {
+      _c.animateTo(cible, duration: FsMotion.accordion, curve: FsMotion.ease);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = FsTokens.of(context);
+    Widget fondu(bool enHaut, bool visible) => Positioned(
+          top: enHaut ? 0 : null,
+          bottom: enHaut ? null : 0,
+          left: 0,
+          right: 0,
+          height: 36,
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              opacity: visible ? 1 : 0,
+              duration: FsMotion.fade,
+              curve: FsMotion.ease,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: enHaut ? Alignment.topCenter : Alignment.bottomCenter,
+                    end: enHaut ? Alignment.bottomCenter : Alignment.topCenter,
+                    colors: [t.bg, t.bg.withOpacity(0)],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+    Widget fleche(bool enHaut, bool visible) => Positioned(
+          top: enHaut ? 2 : null,
+          bottom: enHaut ? null : 2,
+          left: 0,
+          right: 12,
+          child: Center(
+            child: IgnorePointer(
+              ignoring: !visible,
+              child: AnimatedOpacity(
+                opacity: visible ? 1 : 0,
+                duration: FsMotion.fade,
+                curve: FsMotion.ease,
+                child: AnimatedSlide(
+                  offset: Offset(0, visible ? 0 : (enHaut ? -0.3 : 0.3)),
+                  duration: FsMotion.fade,
+                  curve: FsMotion.ease,
+                  child: Semantics(
+                    button: true,
+                    label: enHaut ? FsStrings.scrollUp : FsStrings.scrollDown,
+                    child: FsHover(
+                      onTap: () => _defiler(!enHaut),
+                      builder: (context, hover, _) => AnimatedContainer(
+                        duration: FsMotion.quick,
+                        width: 30,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: hover ? t.bg2 : t.bg,
+                          border: Border.all(color: hover ? t.muted : t.line),
+                        ),
+                        child: Icon(
+                          enHaut ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                          size: 20,
+                          color: hover ? t.ink : t.muted,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+    return NotificationListener<ScrollMetricsNotification>(
+      onNotification: (_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _maj());
+        return false;
+      },
+      child: Stack(children: [
+        Positioned.fill(
+          child: ScrollConfiguration(
+            // Barre maison ci-dessous : pas de seconde barre de la plateforme.
+            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+            child: RawScrollbar(
+              controller: _c,
+              thumbVisibility: true,
+              thickness: 8,
+              minThumbLength: 36,
+              radius: Radius.zero,
+              thumbColor: t.muted.withOpacity(0.55),
+              crossAxisMargin: 0,
+              child: SingleChildScrollView(
+                controller: _c,
+                // Place pour la barre : le contenu ne passe jamais dessous.
+                padding: const EdgeInsets.only(right: 12),
+                child: widget.child,
+              ),
+            ),
+          ),
+        ),
+        fondu(true, _haut),
+        fondu(false, _bas),
+        fleche(true, _haut),
+        fleche(false, _bas),
+      ]),
     );
   }
 }

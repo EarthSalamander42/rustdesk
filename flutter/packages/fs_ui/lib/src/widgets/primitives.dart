@@ -208,9 +208,12 @@ class FsButton extends StatelessWidget {
       builder: (context, hover, down) => AnimatedContainer(
         duration: FsMotion.theme,
         curve: FsMotion.cssEase,
-        height: height,
+        // Bouton pleine largeur (expand) : la hauteur est un minimum, le libellé passe à la ligne (2 lignes
+        // au plus, puis points de suspension) au lieu de déborder de son cadre (vu le 14/10 dans le rail).
+        height: expand ? null : height,
+        constraints: expand ? BoxConstraints(minHeight: height) : null,
         transform: Matrix4.translationValues(0, down ? 1 : 0, 0),
-        padding: EdgeInsets.symmetric(horizontal: hPadding),
+        padding: EdgeInsets.symmetric(horizontal: hPadding, vertical: expand ? 6 : 0),
         decoration: BoxDecoration(
           color: bg,
           border: primary ? null : Border.all(color: t.line),
@@ -223,8 +226,18 @@ class FsButton extends StatelessWidget {
               Icon(leading, size: iconSize, color: fg),
               const SizedBox(width: 10),
             ],
-            FsText(label,
-                style: FsType.sans(fontSize, primary ? FontWeight.w700 : FontWeight.w600, color: fg)),
+            if (expand)
+              Flexible(
+                child: FsText(label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: true,
+                    textAlign: TextAlign.center,
+                    style: FsType.sans(fontSize, primary ? FontWeight.w700 : FontWeight.w600, color: fg)),
+              )
+            else
+              FsText(label,
+                  style: FsType.sans(fontSize, primary ? FontWeight.w700 : FontWeight.w600, color: fg)),
             if (trailing != null) ...[
               const SizedBox(width: 10),
               AnimatedSlide(
