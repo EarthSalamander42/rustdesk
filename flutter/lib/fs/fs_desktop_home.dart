@@ -10,8 +10,8 @@
 // Sur macOS, l'assistant d'autorisations (`fs_mac_permissions.dart`) se pose au-dessus du champ de connexion.
 // 14/10/2026 : connecté avec FS Connect, « Appareils » montre le carnet du compte tenu par le SaaS (entreprises =
 // étiquettes, `fs_saas_devices.dart`) ; « Tickets FS » est une vraie page, visible des seuls superadmins
-// (`fs_tickets_page.dart`, le SaaS refuse les autres). Hors connexion,
-// l'accueil reste celui d'avant.
+// (`fs_tickets_page.dart`, le SaaS refuse les autres) ; le rail propose « Demander une intervention sur site »
+// (`fs_onsite_request.dart`). Hors connexion, l'accueil reste celui d'avant.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -35,6 +35,7 @@ import '../models/platform_model.dart';
 import '../models/server_model.dart';
 import '../models/state_model.dart';
 import 'fs_mac_permissions.dart';
+import 'fs_onsite_request.dart';
 import 'fs_peer_row.dart';
 import 'fs_saas_devices.dart';
 import 'fs_tickets_page.dart';
@@ -489,6 +490,7 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
       nav: _nav(),
       version: _version,
       extra: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (!bind.isOutgoingOnly()) const FsOnsiteCard(),
         if (widget.warning != null) widget.warning!,
         if (widget.helpCards != null) widget.helpCards!,
       ]),

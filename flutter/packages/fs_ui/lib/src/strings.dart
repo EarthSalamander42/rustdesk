@@ -137,6 +137,24 @@ class FsStrings {
     'general': 'Demande',
   };
 
+  // Demande d'intervention sur site (client, sans compte)
+  static const String onsiteTitle = 'Besoin d’un technicien sur place ?';
+  static const String onsiteText = 'FS Solutions vous rappelle pour fixer le rendez-vous.';
+  static const String onsiteButton = 'Demander une intervention sur site';
+  static const String onsiteDialog = 'Intervention sur site';
+  static const String onsiteReason = 'Motif de la demande';
+  static const String onsiteReasonHint = 'Ce qui ne va pas, ce qu’il faut installer…';
+  static const String onsiteSlots = 'Créneaux souhaités (facultatif)';
+  static const String onsiteSlotsHint = 'Ex. mardi matin, jeudi après 14 h';
+  static const String onsiteAddress = 'Adresse de l’intervention (facultatif)';
+  static const String onsitePhone = 'Téléphone (facultatif)';
+  static const String onsiteName = 'Votre nom (facultatif)';
+  static const String onsiteEmail = 'E-mail (facultatif)';
+  static const String onsiteNote = 'L’identifiant FS Support de ce poste est joint à la demande.';
+  static const String onsiteSend = 'Envoyer la demande';
+  static const String onsiteSent = 'Demande envoyée';
+  static const String onsiteReasonMissing = 'Décrivez le besoin en quelques mots.';
+
   // Vides
   static const String abTitle = 'Connectez-vous au serveur FS.';
   static const String abText =
