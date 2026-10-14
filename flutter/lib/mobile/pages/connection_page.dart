@@ -17,6 +17,7 @@ import '../../consts.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'home_page.dart';
+import '../../fs/fs_mobile_sync.dart';
 
 /// Connection page for connecting to a remote peer.
 class ConnectionPage extends StatefulWidget implements PageShape {
@@ -87,6 +88,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
           if (!bind.isCustomClient() && !isIOS)
             Obx(() => _buildUpdateUI(stateGlobal.updateUrl.value)),
           _buildRemoteIDTextField(),
+          // FS Support : appareils de cet appareil seulement / synchronisés avec le compte FS Solutions.
+          const FsMobileSyncIndicator(),
         ])),
         SliverFillRemaining(
           hasScrollBody: true,

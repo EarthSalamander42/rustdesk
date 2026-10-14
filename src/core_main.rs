@@ -35,6 +35,8 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     crate::load_custom_client();
     crate::fs_support::apply_defaults();
+    // FS Support : serveur API https://rd.fs-solutions.fr si l'option est vide (migration unique).
+    crate::fs_support::migrate_api_server();
     #[cfg(windows)]
     if !crate::platform::windows::bootstrap() {
         // return None to terminate the process
@@ -168,6 +170,19 @@ pub fn core_main() -> Option<Vec<String>> {
         }
     }
     hbb_common::init_log(false, &log_name);
+
+    // FS Support : lien d'enrôlement `fs-support://enrol?t=…` (fiche client du CRM). Traité ici,
+    // sans ouvrir l'interface : le jeton part au service par l'IPC, une notification confirme.
+    if args.len() > 0 && crate::fs_enrolment::is_enrol_uri(&args[0]) {
+        crate::fs_enrolment::handle_enrol_uri(&args[0]);
+        return None;
+    }
+    // FS Support : jeton d'enrôlement porté par le nom de l'exe téléchargé
+    // (`…,enrol=<jeton>,.exe`), relevé à l'ouverture de l'interface ou de l'installation.
+    #[cfg(windows)]
+    if args.is_empty() || args[0] == "--install" || args[0] == "--silent-install" {
+        crate::fs_enrolment::capture_from_exe_name();
+    }
 
     // linux uni (url) go here.
     #[cfg(all(target_os = "linux", feature = "flutter"))]

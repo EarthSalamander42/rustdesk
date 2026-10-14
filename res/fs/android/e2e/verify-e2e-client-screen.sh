@@ -292,6 +292,62 @@ case "$CAPW" in
   *) warn "Ecran 3840x2160 : taille de capture relevee $CAPW (plafond 1920 attendu)" ;;
 esac
 
+# ================= Couleur de l'interface (14/10/2026) : jamais de fenetre en mode Ecran client =================
+# Premier lancement de l'interface avec le mode Ecran client actif (preference Kotlin posee plus haut) : la fenetre
+# « Choisissez la couleur de FS Support » ne doit PAS s'ouvrir (l'ecran garde Atelier). Controle positif ensuite :
+# mode coupe, interface relancee -> la fenetre doit apparaitre (sinon l'absence ne prouve rien : rapporte).
+# Les textes Flutter sont lus par uiautomator (arbre d'accessibilite, actif car le service FS Support est lie).
+PALETTE_TXT="Choisissez la couleur"
+MAIN_ACT="$PKG/com.carriez.flutter_hbb.MainActivity"
+ui_dump() {
+  adb shell uiautomator dump /sdcard/fs-ui.xml >/dev/null 2>&1 || true
+  adb exec-out cat /sdcard/fs-ui.xml 2>/dev/null
+}
+attendre_ui() {
+  # Attend qu'un texte de l'appli apparaisse (au plus ~40 s) ; renvoie le dernier vidage.
+  local d="" k=0
+  while [ "$k" -lt 20 ]; do
+    d="$(ui_dump)"
+    case "$d" in *"$PALETTE_TXT"*) break ;; esac
+    if [ "$k" -ge 6 ] && printf '%s' "$d" | grep -q "package=\"$PKG\""; then
+      # Interface affichee depuis au moins ~12 s (delai de la proposition : 1,2 s apres l'accueil).
+      [ "$k" -ge 9 ] && break
+    fi
+    k=$((k + 1)); sleep 2
+  done
+  printf '%s' "$d"
+}
+adb shell am start -n "$MAIN_ACT" >/dev/null 2>&1 || true
+D1="$(attendre_ui)"
+printf '%s' "$D1" > "$OUT/client-screen-palette-ui-$API.xml"
+adb exec-out screencap -p > "$OUT/client-screen-palette-$API.png" 2>/dev/null || true
+case "$D1" in
+  *"$PALETTE_TXT"*) essential_fail "Mode Ecran client : la fenetre de choix de couleur s'est ouverte (interdit)" ;;
+  *"package=\"$PKG\""*) notice "Mode Ecran client : interface ouverte, aucune fenetre de choix de couleur" ;;
+  *) warn "Mode Ecran client : interface FS Support non vue par uiautomator (absence de fenetre non prouvee)" ;;
+esac
+# Controle positif : mode coupe, l'appli relancee doit proposer la couleur.
+cat > /tmp/kcs-off.xml <<'XML'
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <boolean name="KEY_START_ON_BOOT_OPT" value="false" />
+    <boolean name="KEY_FS_CLIENT_SCREEN" value="false" />
+</map>
+XML
+adb shell am force-stop "$PKG" >/dev/null 2>&1 || true
+adb push /tmp/kcs-off.xml /data/local/tmp/kcs-off.xml >/dev/null 2>&1 || true
+adb shell "cp /data/local/tmp/kcs-off.xml /data/data/$PKG/shared_prefs/KEY_SHARED_PREFERENCES.xml" >/dev/null 2>&1 || true
+U2="$(ash stat -c %u "/data/data/$PKG")"
+[ -n "$U2" ] && adb shell "chown $U2:$U2 /data/data/$PKG/shared_prefs/KEY_SHARED_PREFERENCES.xml; chmod 660 /data/data/$PKG/shared_prefs/KEY_SHARED_PREFERENCES.xml; restorecon /data/data/$PKG/shared_prefs/KEY_SHARED_PREFERENCES.xml" >/dev/null 2>&1 || true
+adb shell am start -n "$MAIN_ACT" >/dev/null 2>&1 || true
+D2="$(attendre_ui)"
+printf '%s' "$D2" > "$OUT/palette-hors-ecran-client-ui-$API.xml"
+adb exec-out screencap -p > "$OUT/palette-hors-ecran-client-$API.png" 2>/dev/null || true
+case "$D2" in
+  *"$PALETTE_TXT"*) notice "Controle positif : hors mode Ecran client, la fenetre de choix (Atelier / Ardoise) s'ouvre au premier lancement" ;;
+  *) warn "Controle positif : fenetre de choix de couleur non vue hors mode Ecran client (arbre d'accessibilite Flutter absent ?)" ;;
+esac
+
 # ---- Artefacts ----
 adb logcat -d > "$OUT/client-screen-logcat-$API.txt" 2>&1 || true
 ash dumpsys window > "$OUT/client-screen-window-$API.txt" 2>&1 || true

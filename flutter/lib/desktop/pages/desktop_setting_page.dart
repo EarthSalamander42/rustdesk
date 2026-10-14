@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:fs_ui/fs_ui.dart' show FsStrings;
+import 'package:flutter_hbb/fs/fs_palette_choice.dart' show FsPaletteSettings;
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/widgets/audio_input.dart';
@@ -415,6 +416,10 @@ class _GeneralState extends State<_General> {
       children: [
         if (!isWeb) service(),
         theme(),
+        // FS Support : couleur de l'interface, Atelier ou Ardoise (lib/fs/fs_palette_choice.dart).
+        _Card(title: FsStrings.paletteSettingsTitle, children: [
+          const FsPaletteSettings(padding: EdgeInsets.fromLTRB(_kContentHMargin, 0, _kContentHMargin, 14)),
+        ]),
         _Card(title: 'Language', children: [language()]),
         if (!isWeb) hwcodec(),
         if (!isWeb) audio(context),

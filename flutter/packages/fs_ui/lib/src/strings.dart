@@ -29,6 +29,8 @@ class FsStrings {
   static const String interventions = 'Interventions';
   static const String soon = 'Bientôt';
   static const String settings = 'Paramètres';
+  static const String scrollUp = 'Faire défiler vers le haut';
+  static const String scrollDown = 'Faire défiler vers le bas';
   static const String remoteControl = 'Contrôler un poste à distance';
   static const String idHint = 'ID ou nom de l’appareil — ex. 148 290 731';
   static const String connect = 'Se connecter';
@@ -96,6 +98,35 @@ class FsStrings {
       'Ouvrez une session vers un poste : il est rangé ici, et vous le retrouvez sur tous les postes où vous êtes connecté.';
   static const String fsConnectUnavailable = 'Connexion FS Connect indisponible pour le moment.';
 
+  // Fenêtre « Se connecter » : état de la demande au serveur FS (14/10/2026)
+  static const String loginLoading = 'Connexion au serveur FS…';
+  static const String loginUnreachable =
+      'Impossible de joindre le serveur FS. Vérifiez la connexion Internet puis réessayez.';
+  static String loginServerError(int? code) =>
+      'Le serveur FS ne répond pas correctement pour le moment${code == null ? '' : ' (code $code)'}. Réessayez dans un instant.';
+  static const String retry = 'Réessayer';
+
+  // Synchronisation des appareils avec le compte FS Solutions (14/10/2026)
+  static const String syncLocalOnlyPc =
+      'Appareils enregistrés sur ce PC seulement — connectez-vous pour les sauvegarder';
+  static const String syncLocalOnlyDevice =
+      'Appareils enregistrés sur cet appareil seulement — connectez-vous pour les sauvegarder';
+  static const String syncInProgress = 'Synchronisation…';
+  static const String syncDone = 'Synchronisé';
+  static const String syncFailed = 'Synchronisation impossible, nouvel essai…';
+  static String syncLastAt(String heure) => 'Dernière synchronisation : $heure';
+
+  // Couleur de l'interface (14/10/2026)
+  static const String paletteWord = 'Couleur';
+  static const String paletteTitle = 'Choisissez la couleur de FS Support';
+  static const String paletteText =
+      'Deux couleurs, chacune en clair et en sombre. Vous pourrez la changer à tout moment dans Paramètres.';
+  static String paletteContinue(String nom) => 'Continuer avec $nom';
+  static const String paletteSettingsTitle = 'Couleur de l’interface';
+  static const String paletteSettingsText =
+      'Atelier ou Ardoise ; le mode clair, sombre ou automatique se règle juste au-dessus.';
+  static const String techDetails = 'Détails techniques';
+
   // Tickets FS (superadmin) : demandes reçues par FS Solutions
   static const String ticketsSub = 'Demandes reçues par FS Solutions';
   static const String ticketsOnsite = 'Sur site';
@@ -140,7 +171,7 @@ class FsStrings {
   // Demande d'intervention sur site (client, sans compte)
   static const String onsiteTitle = 'Besoin d’un technicien sur place ?';
   static const String onsiteText = 'FS Solutions vous rappelle pour fixer le rendez-vous.';
-  static const String onsiteButton = 'Demander une intervention sur site';
+  static const String onsiteButton = 'Demander une intervention';
   static const String onsiteDialog = 'Intervention sur site';
   static const String onsiteReason = 'Motif de la demande';
   static const String onsiteReasonHint = 'Ce qui ne va pas, ce qu’il faut installer…';

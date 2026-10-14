@@ -126,6 +126,8 @@ Future<void> initEnv(String appType) async {
   // for convenience, use global FFI on mobile platform
   // focus on multi-ffi on desktop first
   await initGlobalFFI();
+  // FS Support : couleur de l'interface (Atelier / Ardoise), lisible maintenant que le pont Rust existe.
+  fsLoadPalette();
   // await Firebase.initializeApp();
   _registerEventHandler();
   // Update the system theme.
@@ -358,7 +360,8 @@ void _runApp(
   ThemeMode themeMode,
 ) {
   final botToastBuilder = BotToastInit();
-  runApp(RefreshWrapper(
+  // FS Support : reconstruit au changement de couleur (fsPaletteBuilder).
+  runApp(fsPaletteBuilder((_) => RefreshWrapper(
     builder: (context) => GetMaterialApp(
       navigatorKey: globalKey,
       debugShowCheckedModeBanner: false,
@@ -383,7 +386,7 @@ void _runApp(
         return child;
       },
     ),
-  ));
+  )));
 }
 
 void runInstallPage() async {
@@ -483,7 +486,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     // final analytics = FirebaseAnalytics.instance;
     final botToastBuilder = BotToastInit();
-    return RefreshWrapper(builder: (context) {
+    // FS Support : reconstruit au changement de couleur (fsPaletteBuilder).
+    return fsPaletteBuilder((_) => RefreshWrapper(builder: (context) {
       return MultiProvider(
         providers: [
           // global configuration
@@ -542,7 +546,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
                 },
         ),
       );
-    });
+    }));
   }
 }
 
@@ -559,6 +563,8 @@ _registerEventHandler() {
   if (isDesktop && desktopType != DesktopType.main) {
     platformFFI.registerEventHandler('theme', 'theme', (evt) async {
       String? dark = evt['dark'];
+      // FS Support : la couleur a pu changer dans la fenêtre principale.
+      fsLoadPalette();
       if (dark != null) {
         await MyTheme.changeDarkMode(MyTheme.themeModeFromString(dark));
       }

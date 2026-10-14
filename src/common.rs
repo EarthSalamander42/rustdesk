@@ -1233,6 +1233,11 @@ fn get_api_server_(api: String, custom: String) -> String {
     }
     let s0 = get_custom_rendezvous_server(custom);
     if !s0.is_empty() {
+        // FS Support : rendez-vous de FS Solutions ⇒ API en HTTPS (https://rd.fs-solutions.fr),
+        // jamais http://<rendez-vous>:21114, filtré (voir fs_support::fs_api_server_for).
+        if let Some(api) = crate::fs_support::fs_api_server_for(&s0, &Config::get_option("key")) {
+            return api;
+        }
         let s = crate::increase_port(&s0, -2);
         if s == s0 {
             return format!("http://{}:{}", s, config::RENDEZVOUS_PORT - 2);

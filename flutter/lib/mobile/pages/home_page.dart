@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/fs/fs_bottom_nav.dart';
+import 'package:flutter_hbb/fs/fs_palette_choice.dart';
 import 'package:flutter_hbb/mobile/pages/server_page.dart';
 import 'package:flutter_hbb/mobile/pages/settings_page.dart';
 import 'package:flutter_hbb/web/settings_page.dart';
@@ -44,6 +45,10 @@ class HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     initPages();
+    // FS Support : choix de la couleur (Atelier / Ardoise) au premier lancement, jamais en mode Écran client.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) fsMaybeOfferPalette(context);
+    });
   }
 
   void initPages() {

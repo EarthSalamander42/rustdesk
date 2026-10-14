@@ -12,7 +12,9 @@
 // étiquettes, `fs_saas_devices.dart`) ; « Tickets FS » est une vraie page, visible des seuls superadmins
 // (`fs_tickets_page.dart`, le SaaS refuse les autres) ; le rail propose « Demander une intervention sur site »
 // (`fs_onsite_request.dart`). Hors connexion, l'accueil reste celui d'avant.
-import 'dart:async';
+// 14/10/2026 (soir) : indicateur de synchronisation sous « Appareils » — bandeau « Appareils enregistrés sur ce PC
+// seulement » + « Se connecter » hors connexion ; pastille « Synchronisation… » / « Synchronisé » / « nouvel essai… »
+// une fois connecté, d'après l'état réel du carnet (`fsSyncEtat`, moteur `fsSyncDemarrer`).
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -36,6 +38,7 @@ import '../models/server_model.dart';
 import '../models/state_model.dart';
 import 'fs_mac_permissions.dart';
 import 'fs_onsite_request.dart';
+import 'fs_palette_choice.dart';
 import 'fs_peer_row.dart';
 import 'fs_saas_devices.dart';
 import 'fs_tickets_page.dart';
@@ -68,7 +71,6 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
   final _idFocus = FocusNode();
   String _version = '';
   bool? _saasVu;
-  Timer? _synchro;
 
   static const _panels = {
     'devices': PeerTabIndex.recent,
@@ -100,15 +102,16 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
     bind.mainGetVersion().then((v) {
       if (mounted) setState(() => _version = v);
     });
-    // Nouvelles sessions récentes -> carnet du compte (sans effet hors connexion FS Connect).
-    _synchro = Timer.periodic(const Duration(minutes: 3), (_) {
-      if (_panel == 'devices') fsSaasSynchroniser();
+    // Nouvelles sessions récentes -> carnet du compte, nouvel essai après un échec (sans effet hors connexion).
+    fsSyncDemarrer();
+    // Couleur de l'interface (Atelier / Ardoise) : proposée une fois, jamais pendant une prise en main entrante.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) fsMaybeOfferPalette(context);
     });
   }
 
   @override
   void dispose() {
-    _synchro?.cancel();
     _idController.dispose();
     _idFocus.dispose();
     super.dispose();
@@ -155,7 +158,8 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
     if (mounted) setState(() {});
   }
 
-  /// Sous-titre d'« Appareils » : compte FS Solutions, ou invitation à se connecter pour retrouver ses appareils.
+  /// Sous-titre d'« Appareils » : résumé, pastille de synchronisation et compte FS Solutions une fois connecté.
+  /// Hors connexion, l'invitation à se connecter est un bandeau sous le titre ([_bandeauLocal]).
   Widget _compte(BuildContext context, {required bool saas, required Peers source}) {
     final t = FsTokens.of(context);
     final muted = FsType.sans(13, FontWeight.w400, color: t.muted);
@@ -164,32 +168,41 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
           builder: (context, hover, _) => FsText(texte, style: FsType.sans(13, FontWeight.w600, color: hover ? t.ink : t.acc)),
         );
     final user = gFFI.userModel;
-    if (saas) {
+    return Obx(() {
+      final etat = fsSyncEtat();
       return Row(mainAxisSize: MainAxisSize.min, children: [
         _summary(source, ''),
-        const SizedBox(width: 10),
-        Icon(Icons.cloud_done_outlined, size: 16, color: t.muted),
-        const SizedBox(width: 6),
-        FsText('${FsStrings.saasSignedIn} · ${user.displayNameOrUserName}', style: muted),
-        const SizedBox(width: 12),
-        lien(FsStrings.signOut, _deconnecter),
+        if (user.isLogin) ...[
+          const SizedBox(width: 12),
+          FsSyncBadge(state: etat, tooltip: fsSyncInfobulle()),
+          const SizedBox(width: 10),
+          FsText('· ${user.displayNameOrUserName}', style: muted),
+          const SizedBox(width: 12),
+          lien(FsStrings.signOut, _deconnecter),
+        ],
       ]);
-    }
-    if (user.isLogin) {
-      return Row(mainAxisSize: MainAxisSize.min, children: [
-        _summary(source, ''),
-        const SizedBox(width: 10),
-        FsText(FsStrings.saasUnreachable, style: muted),
-      ]);
-    }
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      _summary(source, ''),
-      if (!bind.isDisableAccount()) ...[
-        const SizedBox(width: 12),
-        lien('${FsStrings.saasSignIn} : ${FsStrings.signInFsConnect.toLowerCase()}', () => loginDialog()),
-      ],
-    ]);
+    });
   }
+
+  /// Bandeau « Appareils enregistrés sur ce PC seulement — connectez-vous pour les sauvegarder » (hors connexion).
+  Widget _bandeauLocal() => Obx(() {
+        final visible = !gFFI.userModel.isLogin && !bind.isDisableAccount();
+        return AnimatedSize(
+          duration: FsMotion.slide,
+          curve: FsMotion.ease,
+          alignment: Alignment.topCenter,
+          child: AnimatedSwitcher(
+            duration: FsMotion.fade,
+            child: visible
+                ? Padding(
+                    key: const ValueKey('local'),
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: FsSyncLocalBanner(onSignIn: () => loginDialog()),
+                  )
+                : const SizedBox(key: ValueKey('compte'), width: double.infinity),
+          ),
+        );
+      });
 
   // --- connexion ---------------------------------------------------------
 
@@ -326,7 +339,7 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
         ],
       ));
 
-  Widget _peersPanel({required String title, required Widget sub, required Widget view, bool company = false, Widget? empty, Peers? source}) {
+  Widget _peersPanel({required String title, required Widget sub, required Widget view, bool company = false, Widget? empty, Peers? source, Widget? banner}) {
     Widget body = view;
     if (empty != null && source != null) {
       body = AnimatedBuilder(
@@ -350,6 +363,7 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
           if (company) _tools(company: true) else _tools(),
         ]),
       ),
+      if (banner != null) banner,
       Obx(() => AnimatedSwitcher(
             duration: FsMotion.fade,
             child: peerCardUiType.value == PeerUiType.list
@@ -436,6 +450,7 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
               title: FsStrings.devices,
               sub: _compte(context, saas: true, source: gFFI.abModel.peersModel),
               company: true,
+              banner: _bandeauLocal(),
               view: FsGroupingScope(enabled: true, child: AddressBookPeersView(menuPadding: pad)),
               source: gFFI.abModel.peersModel,
               empty: const FsEmptyState(title: FsStrings.saasEmptyTitle, text: FsStrings.saasEmptyText),
@@ -445,6 +460,7 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
             title: FsStrings.devices,
             sub: _compte(context, saas: false, source: gFFI.recentPeersModel),
             company: true,
+            banner: _bandeauLocal(),
             view: FsGroupingScope(enabled: true, child: RecentPeersView(menuPadding: pad)),
             source: gFFI.recentPeersModel,
             empty: const FsEmptyState(title: FsStrings.emptyTitle, text: FsStrings.emptyText),

@@ -237,10 +237,20 @@ class UserModel {
   /// Throws on network failures, non-success responses, and invalid response
   /// data. Returns an empty list when no API server is configured or a
   /// successful response contains no third-party login options.
-  static Future<List<dynamic>> queryOidcLoginOptions() async {
+  /// FS Support : [timeout] borne l'attente (fenêtre Connexion). Chaque essai porte alors un
+  /// paramètre distinct : la requête abandonnée (pont Rust, rangé par URL) ne peut pas répondre à
+  /// la place du nouvel essai.
+  static int _fsLoginOptionsAttempt = 0;
+  static Future<List<dynamic>> queryOidcLoginOptions({Duration? timeout}) async {
     final url = await bind.mainGetApiServer();
     if (url.trim().isEmpty) return [];
-    final resp = await http.get(Uri.parse('$url/api/login-options'));
+    var uri = Uri.parse('$url/api/login-options');
+    if (timeout != null) {
+      _fsLoginOptionsAttempt++;
+      uri = uri.replace(queryParameters: {'essai': '$_fsLoginOptionsAttempt'});
+    }
+    final request = http.get(uri);
+    final resp = timeout == null ? await request : await request.timeout(timeout);
     const successStatusCodeStart = 200;
     const successStatusCodeEnd = 300;
     if (resp.statusCode < successStatusCodeStart ||

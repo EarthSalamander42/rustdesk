@@ -14,6 +14,7 @@ import '../mobile/pages/server_page.dart' show ConnectionManager, showScamWarnin
 import '../models/platform_model.dart';
 import '../models/server_model.dart';
 import 'fs_client_screen.dart';
+import 'fs_onsite_request.dart' show FsOnsiteCard;
 
 /// Active l'écran de partage de l'Atelier sur Android.
 const bool kFsAtelierMobile = true;
@@ -129,8 +130,15 @@ class _FsMobileShareState extends State<FsMobileShare> {
           },
           permissions: perms,
           connections: const ConnectionManager(),
-          // FS Support : mode « Ecran client » (mise en place une fois, puis gestion a distance).
-          footer: isAndroid ? FsClientScreenSection(serverModel: m) : null,
+          // FS Support : demande d'intervention sur site (14/10/2026), sauf en mode « Écran client » (écran mural
+          // sans personne devant : la demande n'aurait pas de sens et resterait ouverte à n'importe quel passant) ;
+          // puis le mode « Ecran client » (mise en place une fois, puis gestion a distance).
+          footer: isAndroid
+              ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  if (!fsClientScreenEnabled() && !bind.isOutgoingOnly()) const FsOnsiteCard(),
+                  FsClientScreenSection(serverModel: m),
+                ])
+              : null,
         ),
       ),
     );

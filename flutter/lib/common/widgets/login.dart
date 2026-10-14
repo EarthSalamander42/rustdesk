@@ -13,7 +13,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../common.dart';
 import './dialog.dart';
 import './oidc_auth_status.dart';
-import '../../fs/fs_saas_devices.dart' show kFsConnectOnly, kFsConnectUnavailable;
+import '../../fs/fs_saas_devices.dart' show kFsConnectOnly;
+import '../../fs/fs_login_status.dart';
 
 const kOpSvgList = [
   'github',
@@ -737,11 +738,15 @@ Future<bool?> _openLoginDialog() async {
 
   final loginOptions = [].obs;
   final loginOptionsError = Rxn<Object>();
-  final loginOptionsInProgress = false.obs;
+  // FS Support : « en cours » dès l'ouverture (la requête part au premier tour), sinon la fenêtre
+  // affichait un instant « connexion indisponible » avant même d'avoir demandé.
+  final loginOptionsInProgress = kFsConnectOnly.obs;
   fetchLoginOptions() async {
     loginOptionsInProgress.value = true;
     try {
-      loginOptions.value = await UserModel.queryOidcLoginOptions();
+      // FS Support : 8 s au plus (la requête n'avait aucun délai : la fenêtre restait vide).
+      loginOptions.value = await UserModel.queryOidcLoginOptions(
+          timeout: kFsConnectOnly ? kFsLoginOptionsTimeout : null);
       loginOptionsError.value = null;
     } catch (e) {
       debugPrint("queryOidcLoginOptions failed: $e");
@@ -857,45 +862,7 @@ Future<bool?> _openLoginDialog() async {
       setState(() => isInProgress = false);
     }
 
-    thirdAuthWidget() => Obx(() {
-          final error = loginOptionsError.value;
-          final inProgress = loginOptionsInProgress.value;
-          if (error != null) {
-            return Column(
-              children: [
-                const SizedBox(height: 8.0),
-                // NOT use Offstage to wrap LinearProgressIndicator
-                if (inProgress) const LinearProgressIndicator(),
-                if (!inProgress && error is! RequestException)
-                  Text(
-                    translate('network_error_tip'),
-                    style: const TextStyle(fontSize: 12),
-                    textAlign: TextAlign.center,
-                  ),
-                TextButton(
-                  style: TextButton.styleFrom(
-                    foregroundColor: Theme.of(context).colorScheme.primary,
-                  ),
-                  onPressed: inProgress ? null : fetchLoginOptions,
-                  child: Text(translate('Retry')),
-                ),
-                if (!inProgress)
-                  SelectableText(
-                    error.toString(),
-                    style: const TextStyle(fontSize: 11, color: Colors.red),
-                    textAlign: TextAlign.center,
-                  ),
-              ],
-            );
-          }
-          // FS Support : FS Connect est la seule méthode ; sans elle (serveur sans connexion activée), on le dit.
-          if (kFsConnectOnly && loginOptions.isEmpty && !inProgress) {
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text(kFsConnectUnavailable, textAlign: TextAlign.center),
-            );
-          }
-          return Offstage(
+    Widget opsWidget() => Offstage(
             offstage: loginOptions.isEmpty,
             child: Column(
               children: [
@@ -939,6 +906,50 @@ Future<bool?> _openLoginDialog() async {
               ],
             ),
           );
+
+    thirdAuthWidget() => Obx(() {
+          final error = loginOptionsError.value;
+          final inProgress = loginOptionsInProgress.value;
+          // FS Support : chargement visible, délai court, message clair et « Réessayer » ; fondu vers
+          // le bouton FS Connect dès que le serveur a répondu (lib/fs/fs_login_status.dart).
+          if (kFsConnectOnly) {
+            return fsLoginOptionsView(
+              inProgress: inProgress,
+              error: error,
+              empty: loginOptions.isEmpty,
+              onRetry: fetchLoginOptions,
+              options: opsWidget(),
+            );
+          }
+          if (error != null) {
+            return Column(
+              children: [
+                const SizedBox(height: 8.0),
+                // NOT use Offstage to wrap LinearProgressIndicator
+                if (inProgress) const LinearProgressIndicator(),
+                if (!inProgress && error is! RequestException)
+                  Text(
+                    translate('network_error_tip'),
+                    style: const TextStyle(fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.primary,
+                  ),
+                  onPressed: inProgress ? null : fetchLoginOptions,
+                  child: Text(translate('Retry')),
+                ),
+                if (!inProgress)
+                  SelectableText(
+                    error.toString(),
+                    style: const TextStyle(fontSize: 11, color: Colors.red),
+                    textAlign: TextAlign.center,
+                  ),
+              ],
+            );
+          }
+          return opsWidget();
         });
 
     final title = Row(

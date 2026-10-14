@@ -4,6 +4,34 @@
 
 import 'package:flutter/material.dart';
 
+/// Couleur de l'interface, choisie au premier lancement puis dans Paramètres (14/10/2026) :
+/// « Atelier » (crème, encre, olive ; la charte FS Solutions) ou « Ardoise » (gris ardoise chaud et
+/// graphite), chacune en clair et en sombre. Le mode clair / sombre / système reste un réglage à part.
+/// Valeurs d'Ardoise reprises de la maquette FS Suite (`[data-fs-theme="ardoise"]`, `"ardoise-nuit"`).
+enum FsPalette {
+  atelier('atelier', 'Atelier', 'Crème, encre et olive : la charte FS Solutions.'),
+  ardoise('ardoise', 'Ardoise', 'Gris ardoise chaud et graphite, plus sobre.');
+
+  const FsPalette(this.id, this.label, this.description);
+
+  /// Valeur enregistrée (fichier de l'Atelier).
+  final String id;
+
+  /// Nom affiché.
+  final String label;
+
+  /// Phrase d'accompagnement de la fenêtre de choix.
+  final String description;
+
+  /// Palette d'une valeur enregistrée ; inconnue ou vide : Atelier.
+  static FsPalette fromId(String? id) {
+    for (final p in FsPalette.values) {
+      if (p.id == (id ?? '').trim().toLowerCase()) return p;
+    }
+    return FsPalette.atelier;
+  }
+}
+
 /// Couleurs de l'Atelier, en clair et en sombre. Accessible par `FsTokens.of(context)`.
 @immutable
 class FsTokens extends ThemeExtension<FsTokens> {
@@ -113,15 +141,65 @@ class FsTokens extends ThemeExtension<FsTokens> {
     shadow: Color.fromRGBO(0, 0, 0, 0.55),
   );
 
-  /// Jetons du thème courant ; à défaut d'extension, déduits de la luminosité.
+  /// Ardoise, clair (`[data-fs-theme="ardoise"]` de la maquette FS Suite).
+  static const FsTokens ardoiseLight = FsTokens(
+    brightness: Brightness.light,
+    bg: Color(0xFFF1F0ED),
+    bg2: Color(0xFFE7E5E0),
+    field: Color(0xFFFBFAF8),
+    ink: Color(0xFF1D1E1B),
+    muted: Color(0xFF5D5F58),
+    line: Color(0xFFC9C8C2),
+    line2: Color(0xFFDDDCD6),
+    acc: Color(0xFF3D4238),
+    accFg: Color(0xFFF1F0ED),
+    on: Color(0xFF55703A),
+    off: Color(0xFFA3A39C),
+    hov: Color.fromRGBO(61, 66, 56, 0.05),
+    sel: Color.fromRGBO(61, 66, 56, 0.09),
+    danger: Color(0xFFA34A35),
+    shadow: Color.fromRGBO(29, 30, 27, 0.5),
+  );
+
+  /// Ardoise, sombre (`[data-fs-theme="ardoise-nuit"]`) : gris ardoise, jamais noir.
+  static const FsTokens ardoiseDark = FsTokens(
+    brightness: Brightness.dark,
+    bg: Color(0xFF2A2E31),
+    bg2: Color(0xFF31363A),
+    field: Color(0xFF25292C),
+    ink: Color(0xFFEEF0EE),
+    muted: Color(0xFFB9BDB8),
+    line: Color.fromRGBO(238, 240, 236, 0.2),
+    line2: Color.fromRGBO(238, 240, 236, 0.1),
+    acc: Color(0xFFB7C78F),
+    accFg: Color(0xFF23272A),
+    on: Color(0xFFA9C27A),
+    off: Color(0xFF6F757A),
+    hov: Color.fromRGBO(238, 240, 236, 0.05),
+    sel: Color.fromRGBO(183, 199, 143, 0.14),
+    danger: Color(0xFFE08A72),
+    shadow: Color.fromRGBO(0, 0, 0, 0.55),
+  );
+
+  /// Palette en vigueur dans cette fenêtre (posée par le client au démarrage et à chaque choix).
+  static FsPalette palette = FsPalette.atelier;
+
+  /// Jetons du thème courant ; à défaut d'extension, déduits de la luminosité et de la palette.
   static FsTokens of(BuildContext context) {
     final theme = Theme.of(context);
-    return theme.extension<FsTokens>() ??
-        (theme.brightness == Brightness.dark ? dark : light);
+    return theme.extension<FsTokens>() ?? forBrightness(theme.brightness);
   }
 
-  static FsTokens forBrightness(Brightness b) =>
-      b == Brightness.dark ? dark : light;
+  /// Jetons d'une luminosité, pour la palette en vigueur (ou celle donnée : aperçus).
+  static FsTokens forBrightness(Brightness b, [FsPalette? p]) {
+    final dark = b == Brightness.dark;
+    switch (p ?? palette) {
+      case FsPalette.atelier:
+        return dark ? FsTokens.dark : FsTokens.light;
+      case FsPalette.ardoise:
+        return dark ? ardoiseDark : ardoiseLight;
+    }
+  }
 
   @override
   FsTokens copyWith({

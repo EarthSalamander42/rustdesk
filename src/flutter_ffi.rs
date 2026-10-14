@@ -52,6 +52,8 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
         crate::read_custom_client(custom_client_config);
     }
     crate::fs_support::apply_defaults();
+    // FS Support : serveur API https://rd.fs-solutions.fr si l'option est vide (migration unique).
+    crate::fs_support::migrate_api_server();
     #[cfg(target_os = "android")]
     {
         // flexi_logger can't work when android_logger initialized.
@@ -2683,6 +2685,13 @@ pub fn main_get_common(key: String) -> String {
         return crate::fs_support::get_atelier_option(k);
     }
     // FS Support : copie téléchargée ou exécutable installé (cartes d'installation de l'accueil).
+    // FS Support : prise en main entrante en cours ? (fenêtre de choix de la couleur : jamais pendant)
+    if key == "fs-incoming-session" {
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        return crate::fs_support::incoming_session_active().to_string();
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        return false.to_string();
+    }
     if key == "fs-cur-exe-is-installed" {
         return crate::ui_interface::is_cur_exe_the_installed().to_string();
     }
@@ -2798,6 +2807,14 @@ pub fn main_set_common(_key: String, _value: String) {
     // FS Support : réglages de l'Atelier hors de `_local.toml` (voir `fs_support::set_atelier_option`).
     if let Some(k) = _key.strip_prefix(crate::fs_support::ATELIER_OPTION_PREFIX) {
         crate::fs_support::set_atelier_option(k, &_value);
+        return;
+    }
+    // FS Support : lien `fs-support://enrol?t=…` reçu par Flutter (macOS, Android ; Windows le
+    // traite dans core_main). Hors du fil de Flutter : l'IPC du service peut attendre 1 à 2 s.
+    if _key == crate::fs_enrolment::COMMON_KEY_URI {
+        std::thread::spawn(move || {
+            crate::fs_enrolment::handle_enrol_uri(&_value);
+        });
         return;
     }
     #[cfg(target_os = "windows")]
