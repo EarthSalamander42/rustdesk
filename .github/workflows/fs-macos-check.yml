@@ -1,0 +1,32 @@
+# FS Support : compilation macOS Intel (le Mac de Jason) sur les compilations groupées, sans release.
+# Le DMG sort en artefact de run (fs-support-dmg-x86_64, 7 jours) : contrôle de compilation et de la signature
+# (certificat constant si les secrets FS_MACOS_SIGN_P12 / FS_MACOS_SIGN_PASSWORD existent, sinon ad hoc).
+# Jamais de nightly ni de publication d'ici.
+name: FS macOS check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "fs/patch-groupe-**"
+      - "fs/mac-**"
+
+# flutter-build.yml (réutilisé) déclare contents: write ; sans cette autorisation l'appel échoue au démarrage.
+permissions:
+  contents: write
+
+concurrency:
+  group: fs-macos-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    with:
+      upload-artifact: false
+      build-scope: "fs-support-desktop"
+      fs-only: "macos"
+      macos-x64: true
+      macos-arm64: false
+      fs-dmg-artifact: true
