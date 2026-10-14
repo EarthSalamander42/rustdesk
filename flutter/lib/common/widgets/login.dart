@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../common.dart';
 import './dialog.dart';
 import './oidc_auth_status.dart';
+import '../../fs/fs_saas_devices.dart' show kFsConnectOnly, kFsConnectUnavailable;
 
 const kOpSvgList = [
   'github',
@@ -887,6 +888,13 @@ Future<bool?> _openLoginDialog() async {
               ],
             );
           }
+          // FS Support : FS Connect est la seule méthode ; sans elle (serveur sans connexion activée), on le dit.
+          if (kFsConnectOnly && loginOptions.isEmpty && !inProgress) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text(kFsConnectUnavailable, textAlign: TextAlign.center),
+            );
+          }
           return Offstage(
             offstage: loginOptions.isEmpty,
             child: Column(
@@ -894,6 +902,7 @@ Future<bool?> _openLoginDialog() async {
                 const SizedBox(
                   height: 8.0,
                 ),
+                if (!kFsConnectOnly)
                 Center(
                     child: Text(
                   translate('or'),
@@ -975,6 +984,8 @@ Future<bool?> _openLoginDialog() async {
           const SizedBox(
             height: 8.0,
           ),
+          // FS Support : pas de mot de passe propre au serveur, connexion par FS Connect seulement.
+          if (!kFsConnectOnly)
           LoginWidgetUserPass(
             username: username,
             pass: password,
@@ -989,7 +1000,7 @@ Future<bool?> _openLoginDialog() async {
         ],
       ),
       onCancel: onDialogCancel,
-      onSubmit: onLogin,
+      onSubmit: kFsConnectOnly ? null : onLogin,
     );
   }).whenComplete(oidcAuth.close);
 

@@ -8,6 +8,12 @@
 // Sous Windows, l'installation et la mise à jour de l'installation forment un bandeau en tête de la colonne
 // principale (`FsInstallBanner`), au-dessus du champ de connexion.
 // Sur macOS, l'assistant d'autorisations (`fs_mac_permissions.dart`) se pose au-dessus du champ de connexion.
+// 14/10/2026 : connecté avec FS Connect, « Appareils » montre le carnet du compte tenu par le SaaS (entreprises =
+// étiquettes, `fs_saas_devices.dart`) ; « Tickets FS » est une vraie page, visible des seuls superadmins
+// (`fs_tickets_page.dart`, le SaaS refuse les autres). Hors connexion,
+// l'accueil reste celui d'avant.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fs_ui/fs_ui.dart';
@@ -30,6 +36,8 @@ import '../models/server_model.dart';
 import '../models/state_model.dart';
 import 'fs_mac_permissions.dart';
 import 'fs_peer_row.dart';
+import 'fs_saas_devices.dart';
+import 'fs_tickets_page.dart';
 
 /// Active l'accueil de l'Atelier (repli possible sur l'accueil RustDesk en passant à `false`).
 const bool kFsAtelierHome = true;
@@ -58,6 +66,8 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
   final _idController = TextEditingController();
   final _idFocus = FocusNode();
   String _version = '';
+  bool? _saasVu;
+  Timer? _synchro;
 
   static const _panels = {
     'devices': PeerTabIndex.recent,
@@ -83,22 +93,42 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
     hideAbTagsPanel.value = bind.mainGetLocalOption(key: kOptionHideAbTagsPanel) == 'Y';
     peerSearchText.value = '';
     final saved = bind.getLocalFlutterOption(k: _kOptionFsHomePanel);
-    if (saved.isNotEmpty && (_panels.containsKey(saved) || saved.startsWith('soon-'))) _panel = saved;
+    if (saved.isNotEmpty && (_panels.containsKey(saved) || saved == 'tickets' || saved.startsWith('soon-'))) _panel = saved;
+    if (_panel == 'soon-tickets') _panel = 'tickets';
     _syncTab();
     bind.mainGetVersion().then((v) {
       if (mounted) setState(() => _version = v);
+    });
+    // Nouvelles sessions récentes -> carnet du compte (sans effet hors connexion FS Connect).
+    _synchro = Timer.periodic(const Duration(minutes: 3), (_) {
+      if (_panel == 'devices') fsSaasSynchroniser();
     });
   }
 
   @override
   void dispose() {
+    _synchro?.cancel();
     _idController.dispose();
     _idFocus.dispose();
     super.dispose();
   }
 
+  /// « Appareils » : carnet du compte (SaaS) une fois connecté avec FS Connect, sessions récentes sinon.
+  PeerTabIndex? _tabOf(String panel) => panel == 'devices' && fsSaasActif() ? PeerTabIndex.ab : _panels[panel];
+
+  /// Appelé à chaque rendu d'« Appareils » : bascule local <-> SaaS quand la connexion change.
+  void _suivreSaas(bool saas) {
+    if (_saasVu == saas) return;
+    _saasVu = saas;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _syncTab();
+      if (saas) fsSaasSynchroniser();
+    });
+  }
+
   void _syncTab() {
-    final tab = _panels[_panel];
+    final tab = _tabOf(_panel);
     if (tab == null) return;
     if (tab.index != gFFI.peerTabModel.currentTab) {
       gFFI.peerTabModel.setCurrentTabCachedPeers([]);
@@ -115,6 +145,49 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
     bind.setLocalFlutterOption(k: _kOptionFsHomePanel, v: key);
     fsSelectedPeerId.value = '';
     _syncTab();
+    if (key == 'devices') fsSaasSynchroniser();
+  }
+
+  Future<void> _deconnecter() async {
+    await gFFI.userModel.logOut();
+    fsSaasOublierSession();
+    if (mounted) setState(() {});
+  }
+
+  /// Sous-titre d'« Appareils » : compte FS Solutions, ou invitation à se connecter pour retrouver ses appareils.
+  Widget _compte(BuildContext context, {required bool saas, required Peers source}) {
+    final t = FsTokens.of(context);
+    final muted = FsType.sans(13, FontWeight.w400, color: t.muted);
+    Widget lien(String texte, VoidCallback onTap) => FsHover(
+          onTap: onTap,
+          builder: (context, hover, _) => FsText(texte, style: FsType.sans(13, FontWeight.w600, color: hover ? t.ink : t.acc)),
+        );
+    final user = gFFI.userModel;
+    if (saas) {
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        _summary(source, ''),
+        const SizedBox(width: 10),
+        Icon(Icons.cloud_done_outlined, size: 16, color: t.muted),
+        const SizedBox(width: 6),
+        FsText('${FsStrings.saasSignedIn} · ${user.displayNameOrUserName}', style: muted),
+        const SizedBox(width: 12),
+        lien(FsStrings.signOut, _deconnecter),
+      ]);
+    }
+    if (user.isLogin) {
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        _summary(source, ''),
+        const SizedBox(width: 10),
+        FsText(FsStrings.saasUnreachable, style: muted),
+      ]);
+    }
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      _summary(source, ''),
+      if (!bind.isDisableAccount()) ...[
+        const SizedBox(width: 12),
+        lien('${FsStrings.saasSignIn} : ${FsStrings.signInFsConnect.toLowerCase()}', () => loginDialog()),
+      ],
+    ]);
   }
 
   // --- connexion ---------------------------------------------------------
@@ -174,7 +247,9 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
     );
   }
 
-  Widget _nav() => AnimatedBuilder(
+  Widget _nav() => Obx(() {
+        gFFI.userModel.isAdmin.value; // l'entrée « Tickets FS » suit le rôle du compte connecté
+        return AnimatedBuilder(
         animation: Listenable.merge([gFFI.recentPeersModel, gFFI.favoritePeersModel]),
         builder: (context, _) {
           final items = [
@@ -183,12 +258,14 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
             FsNavItem(key: 'fav', icon: Icons.star_outline_rounded, label: FsStrings.favorites, count: gFFI.favoritePeersModel.peers.length),
             if (!bind.isDisableAb()) const FsNavItem(key: 'ab', icon: Icons.contacts_rounded, label: FsStrings.addressBook),
             const FsNavItem(key: 'lan', icon: Icons.lan_rounded, label: FsStrings.discovered),
-            const FsNavItem(key: 'soon-tickets', icon: Icons.confirmation_number_rounded, label: FsStrings.ticketsFs, soon: true),
+            // Tickets FS : superadmins seulement (le SaaS refuse les autres de toute façon).
+            if (gFFI.userModel.isAdmin.value) const FsNavItem(key: 'tickets', icon: Icons.confirmation_number_rounded, label: FsStrings.ticketsFs),
             const FsNavItem(key: 'soon-hist', icon: Icons.event_note_rounded, label: FsStrings.interventions, soon: true),
           ];
           return FsRailNav(items: items, selected: _panel, onSelect: _select);
         },
       );
+      });
 
   // --- panneaux ----------------------------------------------------------
 
@@ -331,15 +408,13 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
             ]),
           ),
         );
-      case 'soon-tickets':
-        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const FsPanelHead(title: FsStrings.ticketsFs, sub: FsStrings.slotSub),
-          FsSlot(title: FsStrings.ticketsTitle, text: FsStrings.ticketsText, cols: [
-            ('Où', TextSpan(children: [const TextSpan(text: 'Nouvelle page '), fsInlineCode(context, 'fs_tickets_page.dart'), const TextSpan(text: ', entrée du rail')])),
-            ('Source', const TextSpan(text: 'API FS (à définir)')),
-            ('Impact amont', const TextSpan(text: 'Aucun fichier RustDesk touché')),
-          ]),
-        ]);
+      case 'tickets':
+        return Obx(() => gFFI.userModel.isAdmin.value
+            ? const FsTicketsPage()
+            : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: const [
+                FsPanelHead(title: FsStrings.ticketsFs),
+                FsEmptyState(title: FsStrings.ticketsFs, text: FsStrings.ticketsDenied),
+              ]));
       case 'soon-hist':
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const FsPanelHead(title: FsStrings.interventions, sub: FsStrings.slotSub),
@@ -350,14 +425,30 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
           ]),
         ]);
       default:
-        return _peersPanel(
-          title: FsStrings.devices,
-          sub: _summary(gFFI.recentPeersModel, ''),
-          company: true,
-          view: FsGroupingScope(enabled: true, child: RecentPeersView(menuPadding: pad)),
-          source: gFFI.recentPeersModel,
-          empty: const FsEmptyState(title: FsStrings.emptyTitle, text: FsStrings.emptyText),
-        );
+        return Obx(() {
+          final saas = fsSaasActif();
+          gFFI.abModel.currentAbPeers.length; // reconstruit au chargement du carnet
+          gFFI.userModel.userName.value;
+          _suivreSaas(saas);
+          if (saas) {
+            return _peersPanel(
+              title: FsStrings.devices,
+              sub: _compte(context, saas: true, source: gFFI.abModel.peersModel),
+              company: true,
+              view: FsGroupingScope(enabled: true, child: AddressBookPeersView(menuPadding: pad)),
+              source: gFFI.abModel.peersModel,
+              empty: const FsEmptyState(title: FsStrings.saasEmptyTitle, text: FsStrings.saasEmptyText),
+            );
+          }
+          return _peersPanel(
+            title: FsStrings.devices,
+            sub: _compte(context, saas: false, source: gFFI.recentPeersModel),
+            company: true,
+            view: FsGroupingScope(enabled: true, child: RecentPeersView(menuPadding: pad)),
+            source: gFFI.recentPeersModel,
+            empty: const FsEmptyState(title: FsStrings.emptyTitle, text: FsStrings.emptyText),
+          );
+        });
     }
   }
 
