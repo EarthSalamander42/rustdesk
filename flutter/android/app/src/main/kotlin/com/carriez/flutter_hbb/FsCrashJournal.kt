@@ -10,7 +10,7 @@ package com.carriez.flutter_hbb
  *      (ActivityManager.getHistoricalProcessExitReasons, API 30+) : plantage Java, plantage natif
  *      (trace « tombstone » en API 31+, dont on garde les textes lisibles), ANR (API 30+), et aussi
  *      les arrêts pour mémoire insuffisante ou par signal, invisibles autrement ;
- *   3. joint la fin du journal Rust de l'appli (<externe>/<nom de l'appli>/Logs/*.log) et la fin
+ *   3. joint la fin du journal Rust de l'appli (<externe>/<nom de l'appli>/Logs, fichiers .log) et la fin
  *      de logcat (lignes de l'appli seulement : Android ne montre à une appli que les siennes) ;
  *   4. envoie le tout en JSON (≤ 64 Ko) à https://api.fs-solutions.fr/fss/api/journal-plantage,
  *      en tâche de fond ; en cas d'échec le rapport reste en file et repart au démarrage suivant.
