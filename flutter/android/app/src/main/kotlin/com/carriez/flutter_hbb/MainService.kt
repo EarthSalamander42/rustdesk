@@ -427,7 +427,8 @@ class MainService : Service() {
             // redemarrage de la capture, au debut de chaque session.
             val clientScreenCap = FsClientScreen.isEnabled(this)
             if (clientScreenCap) {
-                while (max(w, h) / scale > FS_CLIENT_SCREEN_MAX_CAPTURE) {
+                // maxOf : une variable locale « max » masque kotlin.math.max dans cette fonction.
+                while (maxOf(w, h) / scale > FS_CLIENT_SCREEN_MAX_CAPTURE) {
                     scale++
                 }
             }

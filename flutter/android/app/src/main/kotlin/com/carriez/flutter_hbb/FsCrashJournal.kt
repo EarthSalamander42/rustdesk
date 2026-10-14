@@ -113,7 +113,7 @@ object FsCrashJournal {
                 val f = File(app.filesDir, FILE_JVM_CRASH)
                 f.parentFile?.mkdirs()
                 f.writeText(text.take(MAX_TRACE))
-            } catch (_: Throwable) {
+            } catch (ignored: Throwable) {
                 // Rien : on ne doit surtout pas empêcher le traitement normal du plantage.
             }
             if (previous != null) {
@@ -189,7 +189,7 @@ object FsCrashJournal {
         val jvmFile = File(app.filesDir, FILE_JVM_CRASH)
         var jvmTrace: String? = null
         if (jvmFile.isFile) {
-            jvmTrace = try { jvmFile.readText() } catch (_: Exception) { null }
+            jvmTrace = try { jvmFile.readText() } catch (ignored: Exception) { null }
             jvmFile.delete()
         }
 
@@ -302,7 +302,7 @@ object FsCrashJournal {
         return try {
             val p = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-t", "1500", "-v", "threadtime"))
             val bytes = p.inputStream.use { readBounded(it, 2 * 1024 * 1024) }
-            try { p.destroy() } catch (_: Exception) {}
+            try { p.destroy() } catch (ignored: Exception) {}
             String(bytes, Charsets.UTF_8)
         } catch (e: Exception) {
             "logcat illisible : $e"
@@ -387,7 +387,7 @@ object FsCrashJournal {
             version = pi.versionName ?: ""
             @Suppress("DEPRECATION")
             versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) pi.longVersionCode else pi.versionCode.toLong()
-        } catch (_: Exception) {}
+        } catch (ignored: Exception) {}
         val report = JSONObject()
         report.put("fs_support_id", id)
         report.put("uuid", uuid)
@@ -454,7 +454,7 @@ object FsCrashJournal {
         val files = queueDir(context).listFiles()?.sortedBy { it.name } ?: return Pair(0, null)
         var sent = 0
         for (f in files) {
-            val body = try { JSONObject(f.readText()) } catch (_: Exception) { f.delete(); continue }
+            val body = try { JSONObject(f.readText()) } catch (ignored: Exception) { f.delete(); continue }
             // L'identité a pu être connue après la mise en file.
             if (body.optString("fs_support_id").isBlank() || body.optString("uuid").isBlank()) {
                 val (id, uuid) = identity(context)
@@ -499,7 +499,7 @@ object FsCrashJournal {
         } catch (e: Exception) {
             e.javaClass.simpleName + ": " + (e.message ?: "")
         } finally {
-            try { conn?.disconnect() } catch (_: Exception) {}
+            try { conn?.disconnect() } catch (ignored: Exception) {}
         }
     }
 
@@ -516,7 +516,7 @@ object FsCrashJournal {
         rememberIdentity(app, id, uuid)
         executor.execute {
             var ok = false
-            var message: String
+            var message = ""
             try {
                 collectPending(app)
                 val summary = StringBuilder("Envoi manuel depuis l'appareil.")
@@ -527,7 +527,7 @@ object FsCrashJournal {
                         val arr = JSONArray()
                         for (info in exits) arr.put("${iso(info.timestamp)} raison=${info.reason} ${info.description ?: ""}")
                         summary.append(" Dernières sorties : ").append(arr.toString())
-                    } catch (_: Exception) {}
+                    } catch (ignored: Exception) {}
                 }
                 enqueue(app, buildReport(app, "manuel", System.currentTimeMillis(), summary.toString(), "", readLogcat(), readRustLogTail(app), null))
                 val (sent, err) = sendQueue(app)
