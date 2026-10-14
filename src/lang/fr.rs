@@ -175,7 +175,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("The confirmation is not identical.", "Les deux entrées ne correspondent pas."),
         ("Permissions", "Autorisations"),
         ("Accept", "Accepter"),
-        ("Dismiss", "Rejeter"),
+        ("Dismiss", "Refuser"),
         ("Disconnect", "Déconnecter"),
         ("Enable file copy and paste", "Activer le copier-coller de fichiers"),
         ("Connected", "Connecté"),

@@ -16,7 +16,7 @@ use lazy_static::lazy_static;
 use serde::Deserialize;
 use std::ops::Not;
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicPtr, Ordering::SeqCst};
+
 use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -36,11 +36,23 @@ lazy_static! {
 const MAX_VIDEO_FRAME_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_AUDIO_FRAME_TIMEOUT: Duration = Duration::from_millis(1000);
 
+// FS Support : délai sans lecture au-delà duquel on considère qu'aucune session ne consomme les
+// images (capture permanente du mode Écran client) : on cesse alors de les copier.
+const FS_FRAME_CONSUMER_IDLE: Duration = Duration::from_secs(3);
+
+// FS Support : l'image est COPIÉE pendant l'appel JNI (onVideoFrameUpdate / onAudioFrameUpdate),
+// quand le tampon Java est garanti valide. Avant, on ne gardait que son adresse, lue plus tard (jusqu'à
+// 100 ms) par le fil vidéo : or côté Kotlin l'Image est refermée dès le retour de l'appel
+// (acquireLatestImage().use { … }) et le tampon rendu à l'ImageReader, voire démappé par le pilote
+// graphique (gralloc) sur certains boîtiers — lecture de mémoire libérée au démarrage de la vidéo,
+// et ImageReader refermé par stopCapture pendant une lecture. Même chose pour le tampon audio,
+// réutilisé à chaque lecture.
 struct FrameRaw {
     name: &'static str,
-    ptr: AtomicPtr<u8>,
-    len: usize,
+    data: Vec<u8>,
+    fresh: bool,
     last_update: Instant,
+    last_take: Option<Instant>,
     timeout: Duration,
     enable: bool,
 }
@@ -49,9 +61,10 @@ impl FrameRaw {
     fn new(name: &'static str, timeout: Duration) -> Self {
         FrameRaw {
             name,
-            ptr: AtomicPtr::default(),
-            len: 0,
+            data: Vec::new(),
+            fresh: false,
             last_update: Instant::now(),
+            last_take: None,
             timeout,
             enable: false,
         }
@@ -59,49 +72,53 @@ impl FrameRaw {
 
     fn set_enable(&mut self, value: bool) {
         self.enable = value;
-        self.ptr.store(std::ptr::null_mut(), SeqCst);
-        self.len = 0;
+        self.fresh = false;
+        if !value {
+            // Capture arrêtée : on rend la mémoire (une image pleine taille pèse plusieurs Mo).
+            self.data = Vec::new();
+            self.last_take = None;
+        }
     }
 
-    fn update(&mut self, data: *mut u8, len: usize) {
-        if self.enable.not() {
+    fn update(&mut self, data: *const u8, len: usize) {
+        if self.enable.not() || data.is_null() || len == 0 {
             return;
         }
-        self.len = len;
-        self.ptr.store(data, SeqCst);
         self.last_update = Instant::now();
+        let consumed = self
+            .last_take
+            .map(|t| t.elapsed() < FS_FRAME_CONSUMER_IDLE)
+            .unwrap_or(false);
+        if !consumed {
+            // Personne ne lit : pas de copie (la prochaine lecture arme la copie suivante).
+            self.fresh = false;
+            return;
+        }
+        let src = unsafe { std::slice::from_raw_parts(data, len) };
+        self.data.clear();
+        self.data.extend_from_slice(src);
+        self.fresh = true;
     }
 
-    // take inner data as slice
-    // release when success
-    fn take<'a>(&mut self, dst: &mut Vec<u8>, last: &mut Vec<u8>) -> Option<()> {
+    // Donne la dernière image copiée (échange de tampons, pas de seconde copie).
+    fn take(&mut self, dst: &mut Vec<u8>, last: &mut Vec<u8>) -> Option<()> {
         if self.enable.not() {
             return None;
         }
-        let ptr = self.ptr.load(SeqCst);
-        if ptr.is_null() || self.len == 0 {
-            None
-        } else {
-            if self.last_update.elapsed() > self.timeout {
-                log::trace!("Failed to take {} raw,timeout!", self.name);
-                return None;
-            }
-            let slice = unsafe { std::slice::from_raw_parts(ptr, self.len) };
-            self.release();
-            if last.len() == slice.len() && crate::would_block_if_equal(last, slice).is_err() {
-                return None;
-            }
-            dst.resize(slice.len(), 0);
-            unsafe {
-                std::ptr::copy_nonoverlapping(slice.as_ptr(), dst.as_mut_ptr(), slice.len());
-            }
-            Some(())
+        self.last_take = Some(Instant::now());
+        if !self.fresh || self.data.is_empty() {
+            return None;
         }
-    }
-
-    fn release(&mut self) {
-        self.len = 0;
-        self.ptr.store(std::ptr::null_mut(), SeqCst);
+        if self.last_update.elapsed() > self.timeout {
+            log::trace!("Failed to take {} raw,timeout!", self.name);
+            return None;
+        }
+        self.fresh = false;
+        if last.len() == self.data.len() && crate::would_block_if_equal(last, &self.data).is_err() {
+            return None;
+        }
+        std::mem::swap(dst, &mut self.data);
+        Some(())
     }
 }
 
@@ -292,6 +309,19 @@ pub fn clear_codec_info() {
             Ok(JObject::null())
         })?;
 */
+/// FS Support : une exception Java levée par un rappel Kotlin (rustSetByName, rustPointerInput…)
+/// restait en suspens sur le fil Rust appelant, qui n'est jamais rendu à la JVM : chaque appel JNI
+/// suivant sur ce fil partait avec une exception en attente (le processus est tué net quand CheckJNI
+/// est actif, ce qui est le cas des ROM « userdebug » de nombreux écrans interactifs). On écrit la
+/// pile dans logcat (exception_describe) puis on l'efface.
+fn fs_clear_java_exception(env: &JNIEnv, what: &str) {
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_describe();
+        let _ = env.exception_clear();
+        log::error!("FS Support : exception Java dans {} (journalisée puis effacée)", what);
+    }
+}
+
 pub fn call_main_service_pointer_input(kind: &str, mask: i32, x: i32, y: i32) -> JniResult<()> {
     if let (Some(jvm), Some(ctx)) = (
         JVM.read().unwrap().as_ref(),
@@ -299,7 +329,7 @@ pub fn call_main_service_pointer_input(kind: &str, mask: i32, x: i32, y: i32) ->
     ) {
         let mut env = jvm.attach_current_thread_as_daemon()?;
         let kind = if kind == "touch" { 0 } else { 1 };
-        env.call_method(
+        let res = env.call_method(
             ctx,
             "rustPointerInput",
             "(IIII)V",
@@ -309,7 +339,9 @@ pub fn call_main_service_pointer_input(kind: &str, mask: i32, x: i32, y: i32) ->
                 JValue::Int(x),
                 JValue::Int(y),
             ],
-        )?;
+        );
+        fs_clear_java_exception(&env, "rustPointerInput");
+        res?;
         return Ok(());
     } else {
         return Err(JniError::ThrowFailed(-1));
@@ -324,12 +356,14 @@ pub fn call_main_service_key_event(data: &[u8]) -> JniResult<()> {
         let mut env = jvm.attach_current_thread_as_daemon()?;
         let data = env.byte_array_from_slice(data)?;
 
-        env.call_method(
+        let res = env.call_method(
             ctx,
             "rustKeyEventInput",
             "([B)V",
             &[JValue::Object(&JObject::from(data))],
-        )?;
+        );
+        fs_clear_java_exception(&env, "rustKeyEventInput");
+        res?;
         return Ok(());
     } else {
         return Err(JniError::ThrowFailed(-1));
@@ -346,7 +380,9 @@ where
         CLIPBOARD_MANAGER.read().unwrap().as_ref(),
     ) {
         let mut env = jvm.attach_current_thread()?;
-        env.call_method(cm, name, sig, args)?;
+        let res = env.call_method(cm, name, sig, args);
+        fs_clear_java_exception(&env, "ClipboardManager");
+        res?;
         return Ok(());
     } else {
         return Err(JniError::ThrowFailed(-1));
@@ -361,12 +397,14 @@ pub fn call_clipboard_manager_update_clipboard(data: &[u8]) -> JniResult<()> {
         let mut env = jvm.attach_current_thread()?;
         let data = env.byte_array_from_slice(data)?;
 
-        env.call_method(
+        let res = env.call_method(
             cm,
             "rustUpdateClipboard",
             "([B)V",
             &[JValue::Object(&JObject::from(data))],
-        )?;
+        );
+        fs_clear_java_exception(&env, "rustUpdateClipboard");
+        res?;
         return Ok(());
     } else {
         return Err(JniError::ThrowFailed(-1));
@@ -401,8 +439,9 @@ pub fn call_main_service_get_by_name(name: &str) -> JniResult<String> {
             let res = env.get_string(&res)?;
             let res = res.to_string_lossy().to_string();
             Ok(res)
-        })?;
-        Ok(res)
+        });
+        fs_clear_java_exception(&env, "rustGetByName");
+        Ok(res?)
     } else {
         return Err(JniError::ThrowFailed(-1));
     }
@@ -418,7 +457,7 @@ pub fn call_main_service_set_by_name(
         MAIN_SERVICE_CTX.read().unwrap().as_ref(),
     ) {
         let mut env = jvm.attach_current_thread_as_daemon()?;
-        env.with_local_frame(10, |env| -> JniResult<()> {
+        let res = env.with_local_frame(10, |env| -> JniResult<()> {
             let name = env.new_string(name)?;
             let arg1 = env.new_string(arg1.unwrap_or(""))?;
             let arg2 = env.new_string(arg2.unwrap_or(""))?;
@@ -434,7 +473,9 @@ pub fn call_main_service_set_by_name(
                 ],
             )?;
             Ok(())
-        })?;
+        });
+        fs_clear_java_exception(&env, "rustSetByName");
+        res?;
         return Ok(());
     } else {
         return Err(JniError::ThrowFailed(-1));

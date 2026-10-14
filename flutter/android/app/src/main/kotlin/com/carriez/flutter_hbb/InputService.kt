@@ -1578,6 +1578,10 @@ class InputService : AccessibilityService() {
             fsFallbackThread = thread
             fsFallbackHandler = Handler(thread.looper)
         }
+        // FS Support (mode Ecran client) : le systeme relie ce service au demarrage, et le RELIE
+        // de nouveau apres un arret brutal de l'appli : on relance alors le partage s'il ne tourne
+        // pas (sinon il restait arrete jusqu'a un appui sur « Demarrer le partage »).
+        FsClientScreen.ensureServiceStarted(this, "service d'accessibilite relie")
         // FS Support (mode Ecran client) : le service peut se (re)lier APRES qu'une fenêtre de
         // consentement est déjà affichée (boot, redémarrage du service) — aucun évènement ne serait
         // alors émis pour cette fenêtre déjà ouverte. On arme donc le poller tout de suite.

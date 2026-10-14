@@ -15,6 +15,7 @@ import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
 import 'home_page.dart';
 import '../../fs/fs_mobile_share.dart';
+import '../../fs/fs_client_screen.dart' show fsJournalPushIdentity;
 
 class ServerPage extends StatefulWidget implements PageShape {
   @override
@@ -188,6 +189,8 @@ class _ServerPageState extends State<ServerPage> {
     super.initState();
     _updateTimer = periodic_immediate(const Duration(seconds: 3), () async {
       await gFFI.serverModel.fetchID();
+      // FS Support : ID et uuid connus du journal de plantage (envoi sans interface).
+      await fsJournalPushIdentity();
       // FS Support : suit l'autorisation de superposition au retour des réglages système.
       await gFFI.serverModel.refreshOverlayPermission();
     });
@@ -773,6 +776,17 @@ class ConnectionManager extends StatelessWidget {
   }
 
   Widget _buildNewConnectionHint(ServerModel serverModel, Client client) {
+    // FS Support (mode « Écran client ») : aucune réponse attendue sur place, le contrôleur
+    // saisit le mot de passe permanent de son côté.
+    if (bind.mainGetLocalOption(key: kOptionFsClientScreen) == 'Y') {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Text(
+          'Prise en main par FS Solutions · en attente du mot de passe',
+          style: const TextStyle(fontSize: 12),
+        ),
+      );
+    }
     return Row(mainAxisAlignment: MainAxisAlignment.end, children: [
       TextButton(
           child: Text(translate("Dismiss")),

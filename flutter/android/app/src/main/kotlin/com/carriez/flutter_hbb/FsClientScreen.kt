@@ -20,6 +20,10 @@ package com.carriez.flutter_hbb
  */
 
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 
@@ -105,6 +109,65 @@ object FsClientScreen {
     fun clearCaptureConsentWindow() {
         captureConsentUntil = 0L
         captureTightUntil = 0L
+    }
+
+    // Relance automatique du service : au plus AUTO_START_MAX fois par AUTO_START_WINDOW_MS, pour
+    // ne jamais boucler si le demarrage de la capture fait lui-meme tomber l'appli.
+    private const val KEY_AUTO_STARTS = "KEY_FS_CLIENT_SCREEN_AUTO_STARTS"
+    private const val AUTO_START_MAX = 3
+    private const val AUTO_START_WINDOW_MS = 15 * 60_000L
+
+    @Volatile
+    private var autoStartScheduled = false
+
+    /**
+     * Mode « Ecran client » : relance le service de partage (comme au demarrage de l'appareil)
+     * s'il ne tourne pas. Appele quand le systeme relie le service d'accessibilite — ce qu'il fait
+     * aussi apres un arret brutal de l'appli — et a l'ouverture de l'appli. Sans cela, apres un
+     * plantage, le partage restait arrete jusqu'a ce que quelqu'un touche « Demarrer le partage ».
+     */
+    fun ensureServiceStarted(context: Context, reason: String, delayMs: Long = 3_000L) {
+        if (!isEnabled(context)) {
+            return
+        }
+        val app = context.applicationContext
+        if (autoStartScheduled) {
+            return
+        }
+        autoStartScheduled = true
+        Handler(Looper.getMainLooper()).postDelayed({
+            autoStartScheduled = false
+            try {
+                // Service deja vivant (demarrage de l'appareil, partage lance a la main) : il gere
+                // lui-meme sa capture ; on ne double jamais la demande de capture.
+                if (MainService.running != null) {
+                    return@postDelayed
+                }
+                val prefs = app.getSharedPreferences(KEY_SHARED_PREFERENCES, FlutterActivity.MODE_PRIVATE)
+                val now = System.currentTimeMillis()
+                val recent = (prefs.getString(KEY_AUTO_STARTS, "") ?: "")
+                    .split(',')
+                    .mapNotNull { it.toLongOrNull() }
+                    .filter { now - it < AUTO_START_WINDOW_MS }
+                if (recent.size >= AUTO_START_MAX) {
+                    Log.w(logTag, "FS Support : relance du partage suspendue ($reason) : ${recent.size} relances en 15 min")
+                    return@postDelayed
+                }
+                prefs.edit().putString(KEY_AUTO_STARTS, (recent + now).joinToString(",")).apply()
+                Log.i(logTag, "FS Support : relance automatique du partage ($reason)")
+                val intent = Intent(app, MainService::class.java).apply {
+                    action = ACT_INIT_MEDIA_PROJECTION_AND_SERVICE
+                    putExtra(EXT_INIT_FROM_BOOT, true)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    app.startForegroundService(intent)
+                } else {
+                    app.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.w(logTag, "FS Support : relance automatique du partage impossible ($reason) : $e")
+            }
+        }, delayMs)
     }
 
     /** Referme la fenetre installation (apres avoir clique « Terminé »/« Ouvrir »). */

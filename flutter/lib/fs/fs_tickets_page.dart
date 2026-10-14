@@ -17,6 +17,7 @@ import 'package:fs_ui/fs_ui.dart';
 import '../common.dart';
 import '../models/platform_model.dart';
 import '../utils/http_service.dart' as http;
+import 'fs_journaux_plantage.dart';
 
 class FsTicketsPage extends StatefulWidget {
   const FsTicketsPage({super.key});
@@ -26,6 +27,8 @@ class FsTicketsPage extends StatefulWidget {
 }
 
 class _FsTicketsPageState extends State<FsTicketsPage> {
+  // Section « Journaux » : journaux de plantage envoyés par les postes (fs_journaux_plantage.dart).
+  bool _journaux = false;
   String _categorie = 'onsite_request';
   bool _archivees = false;
   bool _chargement = false;
@@ -168,6 +171,15 @@ class _FsTicketsPageState extends State<FsTicketsPage> {
   // ---- rendu ---------------------------------------------------------------
 
   Widget _filtres() => Row(children: [
+        FsChip(label: 'Journaux', icon: Icons.bug_report_outlined, on: _journaux, onPressed: () {
+          setState(() => _journaux = !_journaux);
+          if (!_journaux) _charger();
+        }),
+        const SizedBox(width: 12),
+        if (!_journaux) ..._filtresDemandes(),
+      ]);
+
+  List<Widget> _filtresDemandes() => [
         FsChip(label: FsStrings.ticketsOnsite, icon: Icons.home_repair_service_rounded, on: _categorie == 'onsite_request', onPressed: () {
           setState(() => _categorie = 'onsite_request');
           _charger();
@@ -184,7 +196,7 @@ class _FsTicketsPageState extends State<FsTicketsPage> {
         }),
         const SizedBox(width: 6),
         FsIconButton(icon: Icons.refresh_rounded, tooltip: FsStrings.refresh, spinOnPress: true, onPressed: _charger),
-      ]);
+      ];
 
   Widget _pastille(BuildContext context, String statut) {
     final t = FsTokens.of(context);
@@ -338,11 +350,13 @@ class _FsTicketsPageState extends State<FsTicketsPage> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       FsPanelHead(title: FsStrings.ticketsFs, sub: FsStrings.ticketsSub, tools: [_filtres()]),
       Expanded(
-        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Expanded(flex: 5, child: _liste(context)),
-          VerticalDivider(width: 1, color: t.line),
-          Expanded(flex: 4, child: _volet(context)),
-        ]),
+        child: _journaux
+            ? FsJournauxPlantage(uri: _uri, entetes: _entetes, lire: _lire)
+            : Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Expanded(flex: 5, child: _liste(context)),
+                VerticalDivider(width: 1, color: t.line),
+                Expanded(flex: 4, child: _volet(context)),
+              ]),
       ),
     ]);
   }

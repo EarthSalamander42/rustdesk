@@ -38,6 +38,42 @@ Future<void> fsMigrateLegacyDirectAccess() async {
   } catch (_) {}
 }
 
+// ===========================================================================
+// Journal de plantage (FsCrashJournal.kt) : identite du poste et envoi manuel.
+// ===========================================================================
+String _fsJournalLastId = '';
+
+/// Transmet l'ID et l'uuid FS Support au journal de plantage (une fois par changement).
+Future<void> fsJournalPushIdentity() async {
+  if (!isAndroid) return;
+  try {
+    final id = await bind.mainGetMyId();
+    if (id.isEmpty || id == _fsJournalLastId) return;
+    final uuid = await bind.mainGetUuid();
+    await gFFI.invokeMethod(
+        AndroidChannel.kFsJournalIdentity, {'id': id, 'uuid': uuid});
+    _fsJournalLastId = id;
+  } catch (_) {}
+}
+
+/// Envoie tout de suite le journal (journaux de l'appli + dernieres sorties) a FS Solutions.
+Future<void> fsSendJournal() async {
+  if (!isAndroid) return;
+  showToast('Envoi du journal à FS Solutions…');
+  try {
+    final id = await bind.mainGetMyId();
+    final uuid = await bind.mainGetUuid();
+    final res = await gFFI.invokeMethodWithResult<Map<dynamic, dynamic>>(
+        AndroidChannel.kFsSendJournal, {'id': id, 'uuid': uuid});
+    final message = (res != null && res['message'] is String)
+        ? res['message'] as String
+        : 'Envoi du journal impossible.';
+    showToast(message);
+  } catch (e) {
+    showToast('Envoi du journal impossible : $e');
+  }
+}
+
 /// Ouvre l'assistant de mise en place en plein ecran.
 Future<void> showFsClientScreenWizard(
     BuildContext context, ServerModel serverModel) async {
@@ -102,6 +138,70 @@ class _FsClientScreenSectionState extends State<FsClientScreenSection> {
       _ready = steps.where((s) => s.done).length;
       _total = steps.length;
     });
+  }
+
+  /// Desactive le mode « Ecran client » apres confirmation (fenetre de l'appli, jamais une fenetre
+  /// systeme). Retour a une acceptation normale (mot de passe ET clic) ; mot de passe permanent,
+  /// ID et autorisations deja donnees restent tels quels.
+  Future<void> _disable() async {
+    final t = FsTokens.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: t.bg,
+        shape: const RoundedRectangleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              FsText('ÉCRAN CLIENT',
+                  style: FsType.sans(13, FontWeight.w900, em: 0.14, color: t.muted)),
+              const SizedBox(height: 10),
+              FsText('Désactiver le mode Écran client ?',
+                  style: FsType.sans(18, FontWeight.w800, color: t.ink)),
+              const SizedBox(height: 12),
+              FsText(
+                'Les demandes de prise en main s\'afficheront de nouveau sur cet écran et '
+                'pourront être acceptées d\'un clic ou par le mot de passe. Le partage ne '
+                'redémarrera plus seul. Le mot de passe permanent et l\'ID ne changent pas.',
+                style: FsType.sans(14, FontWeight.w400, height: 1.5, color: t.muted),
+              ),
+              const SizedBox(height: 18),
+              Row(children: [
+                Expanded(
+                  child: FsButton(
+                    label: 'Annuler',
+                    kind: FsButtonKind.ghost,
+                    expand: true,
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FsButton(
+                    label: 'Désactiver',
+                    expand: true,
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ]),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await bind.mainSetLocalOption(key: kOptionFsClientScreen, value: '');
+    await bind.mainSetLocalOption(key: kOptionFsDirectAccessLegacy, value: '');
+    try {
+      await gFFI.invokeMethod(AndroidChannel.kFsSetClientScreen, false);
+    } catch (_) {}
+    await widget.serverModel.setApproveMode(defaultOptionApproveMode);
+    await widget.serverModel.updatePasswordModel();
+    showToast('Mode Écran client désactivé.');
+    await _refresh();
   }
 
   Future<void> _setForceClicks(bool value) async {
@@ -190,6 +290,25 @@ class _FsClientScreenSectionState extends State<FsClientScreenSection> {
               const SizedBox(width: 12),
               FsToggle(value: _forceClicks, onChanged: (v) => _setForceClicks(v)),
             ],
+          ),
+          if (_enabled) ...[
+            const SizedBox(height: 10),
+            FsButton(
+              label: 'Désactiver le mode Écran client',
+              leading: Icons.power_settings_new_rounded,
+              kind: FsButtonKind.ghost,
+              expand: true,
+              onPressed: _disable,
+            ),
+          ],
+          const SizedBox(height: 16),
+          // FS Support : envoi du journal sans terminal ni ADB (plantage, comportement anormal).
+          FsButton(
+            label: 'Envoyer le journal à FS Solutions',
+            leading: Icons.bug_report_outlined,
+            kind: FsButtonKind.ghost,
+            expand: true,
+            onPressed: () => fsSendJournal(),
           ),
         ],
       ),

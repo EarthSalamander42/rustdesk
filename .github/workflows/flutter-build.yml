@@ -1718,7 +1718,15 @@ jobs:
           fi
           # build flutter
           pushd flutter
-          flutter build apk "--${{ env.reltype }}" --target-platform android-arm64,android-arm,android-x64${{ env.x86_target }} ${FLUTTER_VERSION_ARGS}
+          # FS Support : les journaux de job ne sont pas lisibles sans compte GitHub ; en cas d'échec, les erreurs de
+          # compilation (Kotlin « e: », Dart, Gradle « What went wrong ») sont publiées en annotations.
+          set -o pipefail
+          if ! flutter build apk "--${{ env.reltype }}" --target-platform android-arm64,android-arm,android-x64${{ env.x86_target }} ${FLUTTER_VERSION_ARGS} 2>&1 | tee ../fs-flutter-build-apk.log; then
+            { grep -E "^e: |: Error: |error:|What went wrong" -A3 ../fs-flutter-build-apk.log || true; } | grep -v '^--$' | head -n 40 | sed 's/%/%25/g' | while IFS= read -r l; do
+              echo "::error title=flutter build apk::${l}"
+            done
+            exit 1
+          fi
           popd
           mkdir -p signed-apk
           mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk

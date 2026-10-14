@@ -66,14 +66,29 @@ const val MIME_TYPE = MediaFormat.MIMETYPE_VIDEO_VP9
 
 const val MAX_SCREEN_SIZE = 1200
 
+// FS Support (mode Ecran client) : grand cote maximal de la capture (voir updateScreenInfo).
+const val FS_CLIENT_SCREEN_MAX_CAPTURE = 1920
+
 const val VIDEO_KEY_BIT_RATE = 1024_000
 const val VIDEO_KEY_FRAME_RATE = 30
 
 class MainService : Service() {
 
+    // FS Support : les rappels rust* sont appelés depuis des fils Rust par JNI. Une exception
+    // Kotlin qui en sortait restait en suspens sur le fil Rust (voir fs_clear_java_exception dans
+    // libs/scrap/src/android/ffi.rs) : on la journalise ici, avec sa pile, et on ne la propage plus.
     @Keep
     @RequiresApi(Build.VERSION_CODES.N)
     fun rustPointerInput(kind: Int, mask: Int, x: Int, y: Int) {
+        try {
+            rustPointerInputInner(kind, mask, x, y)
+        } catch (e: Exception) {
+            Log.e(logTag, "FS Support : rustPointerInput en échec (kind=$kind mask=$mask)", e)
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun rustPointerInputInner(kind: Int, mask: Int, x: Int, y: Int) {
         // turn on screen with LEFT_DOWN when screen off
         if (!powerManager.isInteractive && (kind == 0 || mask == LEFT_DOWN)) {
             if (wakeLock.isHeld) {
@@ -99,11 +114,24 @@ class MainService : Service() {
     @Keep
     @RequiresApi(Build.VERSION_CODES.N)
     fun rustKeyEventInput(input: ByteArray) {
-        InputService.ctx?.onKeyEvent(input)
+        try {
+            InputService.ctx?.onKeyEvent(input)
+        } catch (e: Exception) {
+            Log.e(logTag, "FS Support : rustKeyEventInput en échec", e)
+        }
     }
 
     @Keep
     fun rustGetByName(name: String): String {
+        return try {
+            rustGetByNameInner(name)
+        } catch (e: Exception) {
+            Log.e(logTag, "FS Support : rustGetByName($name) en échec", e)
+            ""
+        }
+    }
+
+    private fun rustGetByNameInner(name: String): String {
         return when (name) {
             "screen_size" -> {
                 JSONObject().apply {
@@ -121,6 +149,14 @@ class MainService : Service() {
 
     @Keep
     fun rustSetByName(name: String, arg1: String, arg2: String) {
+        try {
+            rustSetByNameInner(name, arg1, arg2)
+        } catch (e: Exception) {
+            Log.e(logTag, "FS Support : rustSetByName($name) en échec", e)
+        }
+    }
+
+    private fun rustSetByNameInner(name: String, arg1: String, arg2: String) {
         when (name) {
             "add_connection" -> {
                 try {
@@ -138,12 +174,19 @@ class MainService : Service() {
                     } else {
                         translate("Share screen")
                     }
+                    // FS Support (mode Ecran client) : plus aucune carte, notification ni dialogue a
+                    // boutons pour une demande ; le controleur saisit le mot de passe permanent de son
+                    // cote, l'ecran affiche seulement « Prise en main par FS Solutions » (FsRemoteNotice).
+                    val clientScreen = FsClientScreen.isEnabled(this)
+                    if (clientScreen) {
+                        remoteNotice.show(id, username, peerId)
+                    }
                     if (authorized) {
                         if (!isFileTransfer && !isTerminal && !isStart) {
                             startCapture()
                         }
                         onClientAuthorizedNotification(id, type, username, peerId)
-                    } else {
+                    } else if (!clientScreen) {
                         val detail = loginRequestDetail(jsonObject)
                         loginRequestNotification(id, username, peerId, detail)
                         showLoginRequestOverlay(id, username, peerId, detail)
@@ -155,7 +198,10 @@ class MainService : Service() {
             "on_client_remove" -> {
                 // FS Support : la demande ou la session est terminée (refus, départ du
                 // demandeur, délai dépassé) : carte et notification retirées, même sans Flutter.
-                arg1.toIntOrNull()?.let { cancelNotification(it) }
+                arg1.toIntOrNull()?.let {
+                    cancelNotification(it)
+                    remoteNotice.forget(it)
+                }
             }
             "update_voice_call_state" -> {
                 try {
@@ -224,6 +270,9 @@ class MainService : Service() {
         var running: MainService? = null
             private set
     }
+
+    // FS Support (mode Ecran client) : information discrete « Prise en main par FS Solutions ».
+    private val remoteNotice by lazy { FsRemoteNotice(this) }
 
     // FS Support : carte « Demande de prise en main » par-dessus l'écran (LoginRequestOverlay.kt).
     private val loginOverlay by lazy {
@@ -296,6 +345,7 @@ class MainService : Service() {
             running = null
         }
         loginOverlay.release()
+        remoteNotice.release()
         checkMediaPermission()
         stopService(Intent(this, FloatingWindowService::class.java))
         super.onDestroy()
@@ -331,6 +381,29 @@ class MainService : Service() {
             h = dm.heightPixels
             dpi = dm.densityDpi
         }
+        // FS Support : sur certaines ROM, les métriques de fenêtre d'un contexte de SERVICE sont
+        // vides (0×0) ; la capture ne démarrait alors jamais (ImageReader 0×0 refusé). Repli sur
+        // les métriques réelles de l'écran principal.
+        if (w <= 0 || h <= 0) {
+            try {
+                val dm = DisplayMetrics()
+                val displayManager =
+                    getSystemService(Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager
+                @Suppress("DEPRECATION")
+                displayManager.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.getRealMetrics(dm)
+                Log.w(logTag, "FS Support : métriques de fenêtre vides, repli sur l'écran ${dm.widthPixels}x${dm.heightPixels}")
+                w = dm.widthPixels
+                h = dm.heightPixels
+                if (dm.densityDpi > 0) {
+                    dpi = dm.densityDpi
+                }
+            } catch (e: Exception) {
+                Log.w(logTag, "FS Support : métriques de l'écran illisibles", e)
+            }
+        }
+        if (dpi <= 0) {
+            dpi = 160
+        }
 
         val max = max(w,h)
         val min = min(w,h)
@@ -346,9 +419,28 @@ class MainService : Service() {
         if (w != 0 && h != 0) {
             if (isHalfScale == true && (w > MAX_SCREEN_SIZE || h > MAX_SCREEN_SIZE)) {
                 scale = 2
+            }
+            // FS Support (mode Ecran client) : un ecran interactif 4K capture en pleine taille, c'est
+            // quatre tampons RGBA de 33 Mo cote Android plus autant de copies cote Rust, sur des
+            // boitiers souvent justes en memoire. On plafonne la capture des le depart (grand cote
+            // <= FS_CLIENT_SCREEN_MAX_CAPTURE) : pas de changement de taille, donc pas d'arret /
+            // redemarrage de la capture, au debut de chaque session.
+            val clientScreenCap = FsClientScreen.isEnabled(this)
+            if (clientScreenCap) {
+                // maxOf : une variable locale « max » masque kotlin.math.max dans cette fonction.
+                while (maxOf(w, h) / scale > FS_CLIENT_SCREEN_MAX_CAPTURE) {
+                    scale++
+                }
+            }
+            if (scale > 1) {
                 w /= scale
                 h /= scale
                 dpi /= scale
+                if (clientScreenCap) {
+                    // Dimensions paires (encodeurs).
+                    w -= w % 2
+                    h -= h % 2
+                }
             }
             if (SCREEN_INFO.width != w) {
                 SCREEN_INFO.width = w

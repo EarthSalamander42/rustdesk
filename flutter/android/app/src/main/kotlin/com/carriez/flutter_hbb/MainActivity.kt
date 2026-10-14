@@ -356,6 +356,27 @@ class MainActivity : FlutterActivity() {
                 "fs_get_client_screen" -> {
                     result.success(FsClientScreen.isEnabled(context))
                 }
+                "fs_journal_identity" -> {
+                    // FS Support : ID et uuid du poste, pour les rapports de plantage (FsCrashJournal).
+                    val args = call.arguments as? Map<*, *>
+                    FsCrashJournal.rememberIdentity(context, args?.get("id") as? String, args?.get("uuid") as? String)
+                    result.success(true)
+                }
+                "fs_send_journal" -> {
+                    // FS Support : bouton « Envoyer le journal à FS Solutions ». Réponse asynchrone.
+                    val args = call.arguments as? Map<*, *>
+                    FsCrashJournal.sendManual(
+                        context,
+                        args?.get("id") as? String,
+                        args?.get("uuid") as? String
+                    ) { ok, message ->
+                        try {
+                            result.success(mapOf("ok" to ok, "message" to message))
+                        } catch (e: Exception) {
+                            Log.w(logTag, "FS Support : réponse de l'envoi du journal perdue : $e")
+                        }
+                    }
+                }
                 "fs_can_install_unknown" -> {
                     // FS Support : l'appli peut-elle installer sa propre mise a jour (sources inconnues) ?
                     result.success(FsSelfUpdate.canInstallUnknown(context))
