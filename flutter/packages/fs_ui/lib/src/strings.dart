@@ -96,6 +96,15 @@ class FsStrings {
       'Ouvrez une session vers un poste : il est rangé ici, et vous le retrouvez sur tous les postes où vous êtes connecté.';
   static const String fsConnectUnavailable = 'Connexion FS Connect indisponible pour le moment.';
 
+  // Fenêtre « Se connecter » : état de la demande au serveur FS (14/10/2026)
+  static const String loginLoading = 'Connexion au serveur FS…';
+  static const String loginUnreachable =
+      'Impossible de joindre le serveur FS. Vérifiez la connexion Internet puis réessayez.';
+  static String loginServerError(int? code) =>
+      'Le serveur FS ne répond pas correctement pour le moment${code == null ? '' : ' (code $code)'}. Réessayez dans un instant.';
+  static const String retry = 'Réessayer';
+  static const String techDetails = 'Détails techniques';
+
   // Tickets FS (superadmin) : demandes reçues par FS Solutions
   static const String ticketsSub = 'Demandes reçues par FS Solutions';
   static const String ticketsOnsite = 'Sur site';
