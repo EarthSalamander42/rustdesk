@@ -41,9 +41,124 @@ pub fn apply_defaults() {
     set_option_if_present("rendezvous-servers", &host);
     set_option_if_present("key", &key);
     set_option_if_present("relay-server", &build_value(option_env!("FS_RUSTDESK_RELAY")));
-    set_option_if_present("api-server", &build_value(option_env!("FS_RUSTDESK_API")));
+    // Serveur API : la variable de compilation si elle est en HTTPS, sinon https://rd.fs-solutions.fr
+    // (jamais l'adresse déduite http://<rendez-vous>:21114, filtrée chez FS Solutions).
+    if let Some(api) = fs_api_server_for(&host, &key) {
+        set_option_if_present("api-server", &api);
+    }
     set_option_if_present("fs-support-prefill-version", FS_SUPPORT_PREFILL_VERSION);
     log::info!("FS Support default RustDesk server configuration applied.");
+}
+
+// ---------------------------------------------------------------------------
+// Serveur API (14/10/2026).
+//
+// Quand l'option `api-server` est vide, RustDesk déduit l'API du serveur de rendez-vous :
+// `http://<rendez-vous>:21114`. Chez FS Solutions, ce port est filtré (TimedOut) : l'API est
+// servie en HTTPS par le répartiteur Linode, qui relaie `rd.fs-solutions.fr/api/*` vers le SaaS.
+// Conséquence avant ce correctif, chez TOUS les clients installés : connexion FS Connect
+// impossible, inventaire (sysinfo, battements) jamais reçu.
+//
+// Désormais, si le rendez-vous est celui de FS Solutions (rd.fs-solutions.fr, l'hôte compilé dans
+// le client ou la clé publique FS) et que l'option est vide, l'API est `https://rd.fs-solutions.fr`.
+// Une valeur posée à la main (Paramètres › Réseau) n'est jamais remplacée. Au démarrage, une
+// migration unique écrit cette adresse dans l'option si elle est vide (service ET interface : sous
+// Windows, la configuration du service est distincte de celle de l'utilisateur), pour qu'elle soit
+// visible dans les réglages.
+// ---------------------------------------------------------------------------
+
+/// API FS Solutions (HTTPS, relayée par le répartiteur vers api.fs-solutions.fr/fss/api).
+pub const FS_DEFAULT_API_SERVER: &str = "https://rd.fs-solutions.fr";
+/// Serveur de rendez-vous public de FS Solutions.
+const FS_RENDEZVOUS_HOST: &str = "rd.fs-solutions.fr";
+/// Marqueur de la migration unique de l'option `api-server`.
+const API_MIGRATION_OPTION: &str = "fs-api-server-migration";
+const API_MIGRATION_VERSION: &str = "1";
+
+/// Nom d'hôte d'une adresse de serveur (`rd.fs-solutions.fr:21116` → `rd.fs-solutions.fr`),
+/// en minuscules, sans schéma, chemin ni point final.
+fn server_host(server: &str) -> String {
+    let s = server.trim();
+    let s = s.split("://").nth(1).unwrap_or(s);
+    let s = s.split('/').next().unwrap_or("");
+    let host = if s.starts_with('[') {
+        // IPv6 entre crochets : [2001:db8::1]:21116
+        s.split(']').next().unwrap_or("").trim_start_matches('[')
+    } else {
+        s.split(':').next().unwrap_or("")
+    };
+    host.trim_end_matches('.').to_ascii_lowercase()
+}
+
+/// Logique pure (testable) : API FS si le rendez-vous est celui de FS Solutions, sinon `None`.
+fn fs_api_server_with(
+    rendezvous: &str,
+    key: &str,
+    build_host: &str,
+    build_key: &str,
+    build_api: &str,
+) -> Option<String> {
+    let host = server_host(rendezvous);
+    if host.is_empty() {
+        return None;
+    }
+    let build_host = server_host(build_host);
+    let build_key = build_key.trim();
+    let is_fs = host == FS_RENDEZVOUS_HOST
+        || (!build_host.is_empty() && host == build_host)
+        || (!build_key.is_empty() && key.trim() == build_key);
+    if !is_fs {
+        return None;
+    }
+    // La variable de compilation n'est retenue qu'en HTTPS : une ancienne valeur
+    // http://…:21114 recréerait exactement la panne corrigée ici.
+    let build_api = build_api.trim().trim_end_matches('/');
+    if build_api.starts_with("https://") && build_api.len() > "https://".len() {
+        Some(build_api.to_owned())
+    } else {
+        Some(FS_DEFAULT_API_SERVER.to_owned())
+    }
+}
+
+/// API à utiliser quand l'option `api-server` est vide et que le rendez-vous est celui de FS.
+pub fn fs_api_server_for(rendezvous: &str, key: &str) -> Option<String> {
+    fs_api_server_with(
+        rendezvous,
+        key,
+        &build_value(option_env!("FS_RUSTDESK_HOST")),
+        &build_value(option_env!("FS_RUSTDESK_KEY")),
+        &build_value(option_env!("FS_RUSTDESK_API")),
+    )
+}
+
+/// Valeur à écrire par la migration : seulement si l'option est vide.
+fn api_server_to_write(current: &str, rendezvous: &str, key: &str) -> Option<String> {
+    if !current.trim().is_empty() {
+        return None;
+    }
+    fs_api_server_for(rendezvous, key)
+}
+
+/// Migration unique (au démarrage de chaque processus : service, serveur, interface, Android).
+pub fn migrate_api_server() {
+    if Config::get_option(API_MIGRATION_OPTION) == API_MIGRATION_VERSION {
+        return;
+    }
+    let rendezvous = crate::common::get_custom_rendezvous_server(Config::get_option(
+        "custom-rendezvous-server",
+    ));
+    if let Some(api) = api_server_to_write(
+        &Config::get_option("api-server"),
+        &rendezvous,
+        &Config::get_option("key"),
+    ) {
+        Config::set_option("api-server".to_owned(), api.clone());
+        log::info!("FS Support : serveur API renseigné ({}).", api);
+    }
+    Config::set_option(
+        API_MIGRATION_OPTION.to_owned(),
+        API_MIGRATION_VERSION.to_owned(),
+    );
 }
 
 pub fn display_version() -> String {
@@ -346,6 +461,88 @@ mod tests {
             .count();
         assert_eq!(leftovers, 0);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const CLE_FS: &str = "Cl3FsPubliqueDeTest=";
+
+    #[test]
+    fn api_fs_quand_le_rendez_vous_est_rd() {
+        // Cas vu chez Jason : rendez-vous rd.fs-solutions.fr, API vide, variable CI absente.
+        for rdv in [
+            "rd.fs-solutions.fr",
+            "rd.fs-solutions.fr:21116",
+            "RD.FS-Solutions.fr.",
+            " rd.fs-solutions.fr ",
+        ] {
+            assert_eq!(
+                fs_api_server_with(rdv, "", "", "", "").as_deref(),
+                Some("https://rd.fs-solutions.fr"),
+                "{rdv}"
+            );
+        }
+        // Jamais le port 21114 en HTTP.
+        let api = fs_api_server_with("rd.fs-solutions.fr", "", "", "", "").unwrap();
+        assert!(!api.contains(":21114") && api.starts_with("https://"));
+    }
+
+    #[test]
+    fn api_fs_par_l_hote_compile_ou_la_cle() {
+        // Hôte compilé dans le client (ex. adresse IP).
+        assert_eq!(
+            fs_api_server_with("82.96.167.199:21116", "", "82.96.167.199", "", "").as_deref(),
+            Some(FS_DEFAULT_API_SERVER)
+        );
+        // Clé publique FS avec un autre nom d'hôte.
+        assert_eq!(
+            fs_api_server_with("support.client.test", CLE_FS, "rd.fs-solutions.fr", CLE_FS, "")
+                .as_deref(),
+            Some(FS_DEFAULT_API_SERVER)
+        );
+        // Variable de compilation en HTTPS retenue (sans « / » final).
+        assert_eq!(
+            fs_api_server_with("rd.fs-solutions.fr", "", "", "", "https://api.exemple.test/")
+                .as_deref(),
+            Some("https://api.exemple.test")
+        );
+        // Ancienne variable http://…:21114 ignorée.
+        assert_eq!(
+            fs_api_server_with("rd.fs-solutions.fr", "", "", "", "http://rd.fs-solutions.fr:21114")
+                .as_deref(),
+            Some(FS_DEFAULT_API_SERVER)
+        );
+    }
+
+    #[test]
+    fn api_inchangee_hors_fs() {
+        // Serveur RustDesk d'un tiers : comportement d'origine (None ⇒ http://hôte:21114).
+        assert_eq!(fs_api_server_with("rustdesk.client.test", "autre", "rd.fs-solutions.fr", CLE_FS, ""), None);
+        assert_eq!(fs_api_server_with("", CLE_FS, "rd.fs-solutions.fr", CLE_FS, ""), None);
+        // Clé vide ne correspond pas à une clé FS vide.
+        assert_eq!(fs_api_server_with("x.test", "", "", "", ""), None);
+        // Faux amis.
+        assert_eq!(fs_api_server_with("rd.fs-solutions.fr.evil.test", "", "", "", ""), None);
+        assert_eq!(fs_api_server_with("xrd.fs-solutions.fr", "", "", "", ""), None);
+    }
+
+    #[test]
+    fn api_migration_n_ecrase_jamais_une_valeur_posee() {
+        assert_eq!(
+            api_server_to_write("https://mon-api.test", "rd.fs-solutions.fr", ""),
+            None
+        );
+        assert_eq!(api_server_to_write("  ", "rustdesk.client.test", ""), None);
+        assert_eq!(
+            api_server_to_write("", "rd.fs-solutions.fr", "").as_deref(),
+            Some(FS_DEFAULT_API_SERVER)
+        );
+    }
+
+    #[test]
+    fn hote_d_un_serveur() {
+        assert_eq!(server_host("rd.fs-solutions.fr:21116"), "rd.fs-solutions.fr");
+        assert_eq!(server_host("https://RD.fs-solutions.fr/api"), "rd.fs-solutions.fr");
+        assert_eq!(server_host("[2001:db8::1]:21116"), "2001:db8::1");
+        assert_eq!(server_host(""), "");
     }
 
     #[test]

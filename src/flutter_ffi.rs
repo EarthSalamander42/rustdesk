@@ -52,6 +52,8 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
         crate::read_custom_client(custom_client_config);
     }
     crate::fs_support::apply_defaults();
+    // FS Support : serveur API https://rd.fs-solutions.fr si l'option est vide (migration unique).
+    crate::fs_support::migrate_api_server();
     #[cfg(target_os = "android")]
     {
         // flexi_logger can't work when android_logger initialized.

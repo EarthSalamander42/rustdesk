@@ -35,6 +35,8 @@ pub fn core_main() -> Option<Vec<String>> {
     }
     crate::load_custom_client();
     crate::fs_support::apply_defaults();
+    // FS Support : serveur API https://rd.fs-solutions.fr si l'option est vide (migration unique).
+    crate::fs_support::migrate_api_server();
     #[cfg(windows)]
     if !crate::platform::windows::bootstrap() {
         // return None to terminate the process
