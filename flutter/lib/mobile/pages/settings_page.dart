@@ -20,6 +20,8 @@ import '../../models/platform_model.dart';
 import '../widgets/deploy_dialog.dart';
 import '../widgets/dialog.dart';
 import 'home_page.dart';
+import '../../fs/fs_palette_choice.dart' show fsShowPaletteDialog;
+import 'package:fs_ui/fs_ui.dart' show FsStrings;
 import 'scan_page.dart';
 
 class SettingsPage extends StatefulWidget implements PageShape {
@@ -897,6 +899,12 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             onPressed: (context) {
               showThemeSettings(gFFI.dialogManager);
             },
+          ),
+          // FS Support : couleur de l'interface, Atelier ou Ardoise (lib/fs/fs_palette_choice.dart).
+          SettingsTile(
+            title: Text(FsStrings.paletteSettingsTitle),
+            leading: Icon(Icons.palette_outlined),
+            onPressed: (context) => fsShowPaletteDialog(context),
           ),
           if (!bind.isDisableAccount())
             SettingsTile.switchTile(

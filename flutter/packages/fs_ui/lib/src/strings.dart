@@ -113,6 +113,16 @@ class FsStrings {
   static const String syncDone = 'Synchronisé';
   static const String syncFailed = 'Synchronisation impossible, nouvel essai…';
   static String syncLastAt(String heure) => 'Dernière synchronisation : $heure';
+
+  // Couleur de l'interface (14/10/2026)
+  static const String paletteWord = 'Couleur';
+  static const String paletteTitle = 'Choisissez la couleur de FS Support';
+  static const String paletteText =
+      'Deux couleurs, chacune en clair et en sombre. Vous pourrez la changer à tout moment dans Paramètres.';
+  static String paletteContinue(String nom) => 'Continuer avec $nom';
+  static const String paletteSettingsTitle = 'Couleur de l’interface';
+  static const String paletteSettingsText =
+      'Atelier ou Ardoise ; le mode clair, sombre ou automatique se règle juste au-dessus.';
   static const String techDetails = 'Détails techniques';
 
   // Tickets FS (superadmin) : demandes reçues par FS Solutions

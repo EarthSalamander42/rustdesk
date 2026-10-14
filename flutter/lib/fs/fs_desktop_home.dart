@@ -38,6 +38,7 @@ import '../models/server_model.dart';
 import '../models/state_model.dart';
 import 'fs_mac_permissions.dart';
 import 'fs_onsite_request.dart';
+import 'fs_palette_choice.dart';
 import 'fs_peer_row.dart';
 import 'fs_saas_devices.dart';
 import 'fs_tickets_page.dart';
@@ -103,6 +104,10 @@ class _FsDesktopHomeState extends State<FsDesktopHome> {
     });
     // Nouvelles sessions récentes -> carnet du compte, nouvel essai après un échec (sans effet hors connexion).
     fsSyncDemarrer();
+    // Couleur de l'interface (Atelier / Ardoise) : proposée une fois, jamais pendant une prise en main entrante.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) fsMaybeOfferPalette(context);
+    });
   }
 
   @override

@@ -312,6 +312,23 @@ pub fn update_file_name() -> Option<String> {
     }
 }
 
+/// Une prise en main entrante est-elle en cours ? (bureau)
+///
+/// Le gestionnaire de connexions (`--cm`) n'existe que pendant une session entrante : il écoute l'IPC
+/// `_cm` et se ferme avec le dernier onglet. Une connexion sans message ni identifiant est ignorée par
+/// lui (aucune session retirée). Sert à ne jamais ouvrir la fenêtre de choix de la couleur pendant une
+/// prise en main.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn incoming_session_active() -> bool {
+    match hbb_common::tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt.block_on(async { crate::ipc::connect(500, "_cm").await.is_ok() }),
+        Err(_) => false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Réglages de l'Atelier (09/10/2026).
 //

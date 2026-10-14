@@ -2685,6 +2685,13 @@ pub fn main_get_common(key: String) -> String {
         return crate::fs_support::get_atelier_option(k);
     }
     // FS Support : copie téléchargée ou exécutable installé (cartes d'installation de l'accueil).
+    // FS Support : prise en main entrante en cours ? (fenêtre de choix de la couleur : jamais pendant)
+    if key == "fs-incoming-session" {
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        return crate::fs_support::incoming_session_active().to_string();
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        return false.to_string();
+    }
     if key == "fs-cur-exe-is-installed" {
         return crate::ui_interface::is_cur_exe_the_installed().to_string();
     }

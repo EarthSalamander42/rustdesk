@@ -9,8 +9,9 @@ import 'typography.dart';
 /// Rayon commun : angles droits partout.
 const BorderRadius fsRadius = BorderRadius.zero;
 
-ThemeData fsAtelierTheme([ThemeData? base, Brightness brightness = Brightness.light]) {
-  final t = FsTokens.forBrightness(brightness);
+/// Thème Material FS : palette en vigueur ([FsTokens.palette]) sauf si [palette] est donnée (aperçus).
+ThemeData fsAtelierTheme([ThemeData? base, Brightness brightness = Brightness.light, FsPalette? palette]) {
+  final t = FsTokens.forBrightness(brightness, palette);
   base ??= ThemeData(brightness: brightness, useMaterial3: false);
   const square = RoundedRectangleBorder(borderRadius: fsRadius);
   // On garde les tailles du thème d'origine (RustDesk) ; seules la famille et les couleurs changent.
