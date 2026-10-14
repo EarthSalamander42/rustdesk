@@ -85,6 +85,76 @@ class FsStrings {
   static const String historyText =
       'Réservé pour l’historique des sessions par client et les notes de poste. Le contenu et sa source restent à décider.';
 
+  // Compte FS Solutions (FS Connect) : appareils rangés dans le SaaS (14/10/2026)
+  static const String saasSignedIn = 'Rangés dans FS Solutions';
+  static const String saasSignIn = 'Retrouvez vos appareils sur tous vos postes';
+  static const String signInFsConnect = 'Se connecter avec FS Connect';
+  static const String signOut = 'Se déconnecter';
+  static const String saasUnreachable = 'FS Solutions injoignable : appareils de ce poste';
+  static const String saasEmptyTitle = 'Aucun appareil dans votre compte FS Solutions.';
+  static const String saasEmptyText =
+      'Ouvrez une session vers un poste : il est rangé ici, et vous le retrouvez sur tous les postes où vous êtes connecté.';
+  static const String fsConnectUnavailable = 'Connexion FS Connect indisponible pour le moment.';
+
+  // Tickets FS (superadmin) : demandes reçues par FS Solutions
+  static const String ticketsSub = 'Demandes reçues par FS Solutions';
+  static const String ticketsOnsite = 'Sur site';
+  static const String ticketsAll = 'Toutes';
+  static const String ticketsOpen = 'En cours';
+  static const String ticketsArchived = 'Archivées';
+  static const String ticketsEmpty = 'Aucune demande pour ce filtre.';
+  static const String ticketsPick = 'Choisissez une demande pour l’ouvrir.';
+  static const String ticketsDenied = 'Tickets FS : réservé aux superadmins FS Solutions.';
+  static const String takeControl = 'Prendre la main';
+  static const String reply = 'Répondre';
+  static const String replyHint = 'Message au fil de la demande (visible dans FS Solutions)';
+  static const String refresh = 'Actualiser';
+  static const String status = 'Statut';
+  static const String slots = 'Créneaux souhaités';
+  static const String address = 'Adresse';
+  static const String phone = 'Téléphone';
+  static const String email = 'E-mail';
+  static const String requester = 'Demandeur';
+  static const String fsSupportId = 'ID FS Support';
+  static const Map<String, String> ticketStatus = {
+    'new': 'Nouveau',
+    'triage': 'Qualification',
+    'waiting_customer': 'Attente client',
+    'planned': 'Planifié',
+    'done': 'Terminé',
+    'cancelled': 'Refusé',
+  };
+  static const Map<String, String> ticketCategory = {
+    'onsite_request': 'Assistance sur site',
+    'server_request': 'Demande de serveur',
+    'mailbox_create': 'Création de boîte mail',
+    'mailbox_change': 'Modification de boîte mail',
+    'alias_create': 'Création d’alias',
+    'quota_upgrade': 'Augmentation de quota',
+    'domain_help': 'Aide domaine',
+    'dns_change': 'Changement DNS',
+    'access_change': 'Modification d’accès Hosting',
+    'general': 'Demande',
+  };
+
+  // Demande d'intervention sur site (client, sans compte)
+  static const String onsiteTitle = 'Besoin d’un technicien sur place ?';
+  static const String onsiteText = 'FS Solutions vous rappelle pour fixer le rendez-vous.';
+  static const String onsiteButton = 'Demander une intervention sur site';
+  static const String onsiteDialog = 'Intervention sur site';
+  static const String onsiteReason = 'Motif de la demande';
+  static const String onsiteReasonHint = 'Ce qui ne va pas, ce qu’il faut installer…';
+  static const String onsiteSlots = 'Créneaux souhaités (facultatif)';
+  static const String onsiteSlotsHint = 'Ex. mardi matin, jeudi après 14 h';
+  static const String onsiteAddress = 'Adresse de l’intervention (facultatif)';
+  static const String onsitePhone = 'Téléphone (facultatif)';
+  static const String onsiteName = 'Votre nom (facultatif)';
+  static const String onsiteEmail = 'E-mail (facultatif)';
+  static const String onsiteNote = 'L’identifiant FS Support de ce poste est joint à la demande.';
+  static const String onsiteSend = 'Envoyer la demande';
+  static const String onsiteSent = 'Demande envoyée';
+  static const String onsiteReasonMissing = 'Décrivez le besoin en quelques mots.';
+
   // Vides
   static const String abTitle = 'Connectez-vous au serveur FS.';
   static const String abText =

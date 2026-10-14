@@ -7,6 +7,10 @@
 // dans « Non classés »).
 // Entreprises, rattachements et état replié/déplié sont propres à ce poste (options locales).
 //
+// Connecté avec FS Connect (14/10/2026, `fs/fs_saas_devices.dart`) : entreprises et rattachements viennent du carnet
+// d'adresses du compte, tenu par le SaaS FS Solutions (entreprise = étiquette). Seul l'état replié/déplié reste local.
+// Hors connexion, rien ne change.
+//
 // Stockage (09/10/2026) : fichier `<application>_atelier.json`, relu à chaque accès et modifié clé
 // par clé (`src/fs_support.rs`, « Réglages de l'Atelier »), et non plus les options Flutter de
 // `_local.toml`, que tout autre processus FS Support réenregistre en entier depuis sa propre copie
@@ -21,6 +25,7 @@ import '../../common.dart';
 import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import '../../fs/fs_peer_row.dart';
+import '../../fs/fs_saas_devices.dart';
 import 'package:fs_ui/fs_ui.dart';
 import 'peer_card.dart' show peerCardUiType, PeerUiType;
 
@@ -116,10 +121,27 @@ Future<void> _save() async {
   fsCompanyVersion.value++;
 }
 
+/// Entreprises et rattachements LOCAUX (reprise vers le SaaS à la première connexion FS Connect).
+({List<String> companies, Map<String, String> map}) fsLocalCompanySnapshot() {
+  fsLoadCompanyOptions();
+  return (companies: List<String>.from(_companies), map: Map<String, String>.from(_companyMap));
+}
+
 /// Entreprise choisie à la main pour cet appareil (vide si aucune).
-String fsManualCompany(String peerId) => _companyMap[peerId] ?? '';
+String fsManualCompany(String peerId) {
+  if (fsSaasActif()) {
+    final p = fsSaasAppareil(peerId);
+    return p == null ? '' : fsSaasEntrepriseDe(p);
+  }
+  return _companyMap[peerId] ?? '';
+}
 
 Future<void> fsSetManualCompany(String peerId, String company) async {
+  if (fsSaasActif()) {
+    await fsSaasRangerAppareil(peerId, company);
+    fsCompanyVersion.value++;
+    return;
+  }
   final value = company.trim();
   if (value.isEmpty || _key(value) == _key(kFsUnclassified)) {
     _companyMap.remove(peerId);
@@ -132,23 +154,31 @@ Future<void> fsSetManualCompany(String peerId, String company) async {
 }
 
 String fsCompanyOf(Peer peer) {
-  final manual = fsManualCompany(peer.id);
+  final manual = fsSaasActif() ? fsSaasEntrepriseDe(peer) : fsManualCompany(peer.id);
   return manual.isNotEmpty ? manual : kFsUnclassified;
 }
 
 /// Entreprises déclarées, triées (sans « Non classés »).
 List<String> fsKnownCompanies([List<Peer>? peers]) {
-  final list = List<String>.from(_companies)
+  final list = List<String>.from(fsSaasActif() ? gFFI.abModel.currentAbTags : _companies)
     ..sort((a, b) => _key(a).compareTo(_key(b)));
   return list;
 }
 
 /// Nombre d'appareils rangés dans une entreprise.
-int fsCompanyDeviceCount(String company) =>
-    _companyMap.values.where((c) => _key(c) == _key(company)).length;
+int fsCompanyDeviceCount(String company) => fsSaasActif()
+    ? gFFI.abModel.currentAbPeers.where((p) => _key(fsSaasEntrepriseDe(p)) == _key(company)).length
+    : _companyMap.values.where((c) => _key(c) == _key(company)).length;
 
 /// Ajoute une entreprise vide. Faux si le nom est vide ou existe déjà.
 Future<bool> fsAddCompany(String company) async {
+  if (fsSaasActif()) {
+    final name = company.trim();
+    if (name.isEmpty || _key(name) == _key(kFsUnclassified) || fsSaasEtiquette(name) != null) return false;
+    final ok = await gFFI.abModel.addTags([name]);
+    fsCompanyVersion.value++;
+    return ok;
+  }
   if (!_addToList(company)) return false;
   await _save();
   return true;
@@ -158,6 +188,13 @@ Future<bool> fsAddCompany(String company) async {
 Future<void> fsRenameCompany(String from, String to) async {
   final target = to.trim();
   if (target.isEmpty || _key(target) == _key(kFsUnclassified)) return;
+  if (fsSaasActif()) {
+    await fsSaasRenommerEntreprise(from, target);
+    if (_collapsed.remove(_key(from))) _collapsed.add(_key(target));
+    await _setOption(kOptionFsCompanyCollapsed, jsonEncode(_collapsed.toList()));
+    fsCompanyVersion.value++;
+    return;
+  }
   final merge = _companies.any(
       (c) => _key(c) == _key(target) && _key(c) != _key(from));
   final name = merge ? _canonical(target) : target;
@@ -175,6 +212,14 @@ Future<void> fsRenameCompany(String from, String to) async {
 
 /// Supprime une entreprise : ses appareils repassent dans « Non classés ».
 Future<void> fsDeleteCompany(String company) async {
+  if (fsSaasActif()) {
+    final tag = fsSaasEtiquette(company);
+    if (tag != null) await gFFI.abModel.deleteTag(tag);
+    _collapsed.remove(_key(company));
+    await _setOption(kOptionFsCompanyCollapsed, jsonEncode(_collapsed.toList()));
+    fsCompanyVersion.value++;
+    return;
+  }
   _companies.removeWhere((c) => _key(c) == _key(company));
   _companyMap.removeWhere((_, c) => _key(c) == _key(company));
   _collapsed.remove(_key(company));
