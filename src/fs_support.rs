@@ -548,9 +548,12 @@ mod tests {
             None
         );
         assert_eq!(api_server_to_write("  ", "rustdesk.client.test", ""), None);
+        // Valeur attendue : celle de la compilation (FS_RUSTDESK_API en https si la CI la fournit), sinon le défaut.
+        let attendu = fs_api_server_for("rd.fs-solutions.fr", "").expect("rendez-vous FS");
+        assert!(attendu.starts_with("https://") && !attendu.ends_with(":21114"));
         assert_eq!(
             api_server_to_write("", "rd.fs-solutions.fr", "").as_deref(),
-            Some(FS_DEFAULT_API_SERVER)
+            Some(attendu.as_str())
         );
     }
 
