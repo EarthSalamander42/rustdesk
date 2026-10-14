@@ -19,3 +19,4 @@ export 'src/widgets/login_status.dart';
 export 'src/widgets/primitives.dart';
 export 'src/widgets/rail.dart';
 export 'src/widgets/session.dart';
+export 'src/widgets/sync.dart';

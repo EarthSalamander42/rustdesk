@@ -103,6 +103,16 @@ class FsStrings {
   static String loginServerError(int? code) =>
       'Le serveur FS ne répond pas correctement pour le moment${code == null ? '' : ' (code $code)'}. Réessayez dans un instant.';
   static const String retry = 'Réessayer';
+
+  // Synchronisation des appareils avec le compte FS Solutions (14/10/2026)
+  static const String syncLocalOnlyPc =
+      'Appareils enregistrés sur ce PC seulement — connectez-vous pour les sauvegarder';
+  static const String syncLocalOnlyDevice =
+      'Appareils enregistrés sur cet appareil seulement — connectez-vous pour les sauvegarder';
+  static const String syncInProgress = 'Synchronisation…';
+  static const String syncDone = 'Synchronisé';
+  static const String syncFailed = 'Synchronisation impossible, nouvel essai…';
+  static String syncLastAt(String heure) => 'Dernière synchronisation : $heure';
   static const String techDetails = 'Détails techniques';
 
   // Tickets FS (superadmin) : demandes reçues par FS Solutions
