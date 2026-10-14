@@ -587,7 +587,11 @@ class ServerModel with ChangeNotifier {
       notifyListeners();
       // FS Support (mode « Écran client ») : pas de dialogue à boutons sur un écran géré à
       // distance ; le service Android affiche « Prise en main par FS Solutions » (FsRemoteNotice).
-      if (isAndroid && !client.authorized && !_fsClientScreen()) {
+      // FS Support : quand la carte native par-dessus l'écran s'affiche (superposition autorisée
+      // et acceptation d'un clic possible, voir MainService.showLoginRequestOverlay), elle est la
+      // seule demande visible : plus de dialogue Flutter en double.
+      final nativeCard = _overlayOk && approveMode != 'password';
+      if (isAndroid && !client.authorized && !_fsClientScreen() && !nativeCard) {
         showLoginDialog(client);
       }
       if (isAndroid) androidUpdatekeepScreenOn();
