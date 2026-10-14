@@ -174,12 +174,19 @@ class MainService : Service() {
                     } else {
                         translate("Share screen")
                     }
+                    // FS Support (mode Ecran client) : plus aucune carte, notification ni dialogue a
+                    // boutons pour une demande ; le controleur saisit le mot de passe permanent de son
+                    // cote, l'ecran affiche seulement « Prise en main par FS Solutions » (FsRemoteNotice).
+                    val clientScreen = FsClientScreen.isEnabled(this)
+                    if (clientScreen) {
+                        remoteNotice.show(id, username, peerId)
+                    }
                     if (authorized) {
                         if (!isFileTransfer && !isTerminal && !isStart) {
                             startCapture()
                         }
                         onClientAuthorizedNotification(id, type, username, peerId)
-                    } else {
+                    } else if (!clientScreen) {
                         val detail = loginRequestDetail(jsonObject)
                         loginRequestNotification(id, username, peerId, detail)
                         showLoginRequestOverlay(id, username, peerId, detail)
@@ -191,7 +198,10 @@ class MainService : Service() {
             "on_client_remove" -> {
                 // FS Support : la demande ou la session est terminée (refus, départ du
                 // demandeur, délai dépassé) : carte et notification retirées, même sans Flutter.
-                arg1.toIntOrNull()?.let { cancelNotification(it) }
+                arg1.toIntOrNull()?.let {
+                    cancelNotification(it)
+                    remoteNotice.forget(it)
+                }
             }
             "update_voice_call_state" -> {
                 try {
@@ -260,6 +270,9 @@ class MainService : Service() {
         var running: MainService? = null
             private set
     }
+
+    // FS Support (mode Ecran client) : information discrete « Prise en main par FS Solutions ».
+    private val remoteNotice by lazy { FsRemoteNotice(this) }
 
     // FS Support : carte « Demande de prise en main » par-dessus l'écran (LoginRequestOverlay.kt).
     private val loginOverlay by lazy {
@@ -332,6 +345,7 @@ class MainService : Service() {
             running = null
         }
         loginOverlay.release()
+        remoteNotice.release()
         checkMediaPermission()
         stopService(Intent(this, FloatingWindowService::class.java))
         super.onDestroy()

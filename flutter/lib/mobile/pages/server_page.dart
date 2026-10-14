@@ -773,6 +773,17 @@ class ConnectionManager extends StatelessWidget {
   }
 
   Widget _buildNewConnectionHint(ServerModel serverModel, Client client) {
+    // FS Support (mode « Écran client ») : aucune réponse attendue sur place, le contrôleur
+    // saisit le mot de passe permanent de son côté.
+    if (bind.mainGetLocalOption(key: kOptionFsClientScreen) == 'Y') {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Text(
+          'Prise en main par FS Solutions · en attente du mot de passe',
+          style: const TextStyle(fontSize: 12),
+        ),
+      );
+    }
     return Row(mainAxisAlignment: MainAxisAlignment.end, children: [
       TextButton(
           child: Text(translate("Dismiss")),
