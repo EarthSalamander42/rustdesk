@@ -62,6 +62,8 @@ object FsCrashJournal {
     private const val KEY_LAST_EXIT_TS = "last_exit_ts"
     private const val KEY_ID = "fs_support_id"
     private const val KEY_UUID = "fs_support_uuid"
+    // Tests e2e seulement (emulateur, prefs ecrites en root) : rapports gardes en file, jamais envoyes.
+    private const val KEY_SEND_DISABLED = "envoi_desactive"
 
     private const val DIR_QUEUE = "fs-journal/attente"
     private const val FILE_JVM_CRASH = "fs-journal/plantage-jvm.txt"
@@ -445,6 +447,10 @@ object FsCrashJournal {
 
     // Envoie les rapports en file, du plus ancien au plus récent ; s'arrête au premier échec réseau.
     private fun sendQueue(context: Context): Pair<Int, String?> {
+        if (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_SEND_DISABLED, false)) {
+            Log.i(TAG, "FS Support journal : envoi desactive (test), rapports gardes en file")
+            return Pair(0, "envoi désactivé")
+        }
         val files = queueDir(context).listFiles()?.sortedBy { it.name } ?: return Pair(0, null)
         var sent = 0
         for (f in files) {
@@ -459,7 +465,7 @@ object FsCrashJournal {
             if (err == null) {
                 f.delete()
                 sent++
-            } else if (err.startsWith("HTTP 4") && !err.startsWith("HTTP 429")) {
+            } else if (err == "HTTP 400" || err == "HTTP 413" || err == "HTTP 415" || err == "HTTP 422") {
                 // Refus définitif (rapport invalide) : inutile de le renvoyer sans fin.
                 Log.w(TAG, "FS Support journal : rapport refusé ($err), supprimé")
                 f.delete()

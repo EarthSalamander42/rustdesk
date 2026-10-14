@@ -193,6 +193,105 @@ else
   warn "Auto-validation de l'installateur NON confirmee (limite CI : pas de 2e APK a versionCode superieur ; reinstallation identique parfois sans fenetre)"
 fi
 
+# ================= Journal de plantage + relance automatique du partage (14/10/2026) =================
+# Un plantage est provoque (« am crash ») : le gestionnaire d'exceptions doit ecrire la pile, le systeme
+# relance le processus pour le service d'accessibilite, le mode Ecran client doit RELANCER le partage
+# (consentement auto-valide comme au boot), et au demarrage le journal doit mettre en file un rapport
+# « crash » complet. L'envoi reseau est coupe (pref de test « envoi_desactive », ecrite en root) : la CI
+# n'envoie jamais rien a la prod ; le rapport est lu dans la file de l'appli.
+JPREFS="/data/data/$PKG/shared_prefs/fs_crash_journal.xml"
+cat > /tmp/fsj.xml <<'XML'
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <boolean name="envoi_desactive" value="true" />
+</map>
+XML
+adb push /tmp/fsj.xml /data/local/tmp/fsj.xml >/dev/null 2>&1 || true
+adb shell "cp /data/local/tmp/fsj.xml $JPREFS" >/dev/null 2>&1 || true
+U="$(ash stat -c %u "/data/data/$PKG")"
+[ -n "$U" ] && adb shell "chown $U:$U $JPREFS; chmod 660 $JPREFS; restorecon $JPREFS" >/dev/null 2>&1 || true
+
+adb logcat -c >/dev/null 2>&1 || true
+PID_AVANT="$(ash pidof "$PKG")"
+if adb shell am crash "$PKG" >/dev/null 2>&1; then
+  notice "Plantage provoque (am crash, pid $PID_AVANT)"
+else
+  warn "am crash indisponible sur API $API : test du journal de plantage saute"
+fi
+# Le systeme relance le processus (service d'accessibilite relie) ; on attend la relance du partage puis
+# la collecte du journal (20 s apres le demarrage du processus).
+RELANCE=0
+CAP2=0
+i=0
+while [ "$i" -lt 45 ]; do
+  P="$(ash pidof "$PKG")"
+  if [ -n "$P" ] && [ "$P" != "$PID_AVANT" ]; then
+    adb logcat -d 2>/dev/null | grep -qF 'relance automatique du partage' && RELANCE=1
+    case "$(ash dumpsys media_projection)" in *"$PKG"*) CAP2=1 ;; esac
+    adb logcat -d 2>/dev/null | grep -qF 'mis en file' && [ "$CAP2" = 1 ] && break
+  fi
+  i=$((i + 1)); sleep 2
+done
+adb logcat -d > "$OUT/client-screen-plantage-logcat-$API.txt" 2>&1 || true
+if [ "$RELANCE" = 1 ]; then
+  notice "Apres plantage : partage relance automatiquement (mode Ecran client)"
+else
+  essential_fail "Apres plantage : aucune relance automatique du partage"
+fi
+if [ "$CAP2" = 1 ]; then
+  notice "Apres plantage : capture de nouveau active"
+elif [ "$API" -ge 34 ]; then
+  warn "Apres plantage : capture non reactivee (meme limite emulateur API $API que le consentement au boot)"
+else
+  essential_fail "Apres plantage : capture non reactivee"
+fi
+
+# Rapport en file : lu en root, verifie (raison, pile, taille, aucun secret).
+QDIR="/data/data/$PKG/files/fs-journal/attente"
+RAPPORT="$(ash "ls $QDIR" | head -n 1)"
+if [ -n "$RAPPORT" ]; then
+  adb exec-out cat "$QDIR/$RAPPORT" > "$OUT/client-screen-rapport-$API.json" 2>/dev/null || true
+  python3 - "$OUT/client-screen-rapport-$API.json" "$API" <<'PY'
+import json, sys
+path, api = sys.argv[1], sys.argv[2]
+raw = open(path, 'rb').read()
+try:
+    r = json.loads(raw)
+except Exception as e:
+    print(f"::error::[API {api}] Rapport de plantage illisible : {e}"); sys.exit(1)
+ok = True
+def err(m):
+    global ok; ok = False; print(f"::error::[API {api}] Rapport de plantage : {m}")
+if r.get('raison') not in ('crash', 'jvm'): err(f"raison inattendue {r.get('raison')!r}")
+if 'CrashedByAdb' not in r.get('trace', '') and 'Exception' not in r.get('trace', ''): err("pile Java absente")
+if len(raw) > 64 * 1024: err(f"rapport trop gros ({len(raw)} octets)")
+low = raw.decode('utf-8', 'replace').lower()
+for mot in ('password=', 'bearer '):
+    if mot in low: err(f"donnee sensible non masquee ({mot})")
+if not r.get('logcat'): err("logcat absent")
+if r.get('ecran_client') is not True: err("mode Ecran client non signale")
+for k in ('version', 'modele', 'android_version', 'horodatage'):
+    if not r.get(k): err(f"champ {k} vide")
+if ok:
+    print(f"::notice::[API {api}] Rapport de plantage complet : raison={r.get('raison')}, {len(raw)} octets, ID={r.get('fs_support_id') or '(inconnu en CI)'}, trace {len(r.get('trace',''))} car., logcat {len(r.get('logcat',''))} car., journal Rust {len(r.get('journal_rust',''))} car.")
+sys.exit(0 if ok else 1)
+PY
+  [ $? = 0 ] || FAIL=1
+else
+  essential_fail "Aucun rapport de plantage en file apres le redemarrage ($QDIR vide)"
+fi
+
+# Non essentiel : ecran « 4K » -> capture plafonnee a 1920 px en mode Ecran client.
+ash wm size 3840x2160 >/dev/null 2>&1 || true
+sleep 8
+CAPW="$(adb logcat -d 2>/dev/null | grep -F 'updateScreenInfo:w:' | tail -n 1 | sed 's/.*updateScreenInfo://; s/[^[:print:]]//g')"
+ash wm size reset >/dev/null 2>&1 || true
+case "$CAPW" in
+  *w:1920,h:1080*|*w:1080,h:1920*) notice "Ecran 3840x2160 : capture plafonnee ($CAPW)" ;;
+  "") warn "Ecran 3840x2160 : taille de capture non relevee dans le journal" ;;
+  *) warn "Ecran 3840x2160 : taille de capture relevee $CAPW (plafond 1920 attendu)" ;;
+esac
+
 # ---- Artefacts ----
 adb logcat -d > "$OUT/client-screen-logcat-$API.txt" 2>&1 || true
 ash dumpsys window > "$OUT/client-screen-window-$API.txt" 2>&1 || true
