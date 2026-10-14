@@ -12,6 +12,12 @@ class MainApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "App start")
+        // FS Support : journal de plantage (gestionnaire d'exceptions + envoi des sorties récentes).
+        try {
+            FsCrashJournal.onProcessStart(this)
+        } catch (e: Throwable) {
+            Log.w(TAG, "FS Support : journal de plantage indisponible : $e")
+        }
         FFI.onAppStart(applicationContext)
     }
 }

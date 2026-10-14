@@ -15,6 +15,7 @@ import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
 import 'home_page.dart';
 import '../../fs/fs_mobile_share.dart';
+import '../../fs/fs_client_screen.dart' show fsJournalPushIdentity;
 
 class ServerPage extends StatefulWidget implements PageShape {
   @override
@@ -188,6 +189,8 @@ class _ServerPageState extends State<ServerPage> {
     super.initState();
     _updateTimer = periodic_immediate(const Duration(seconds: 3), () async {
       await gFFI.serverModel.fetchID();
+      // FS Support : ID et uuid connus du journal de plantage (envoi sans interface).
+      await fsJournalPushIdentity();
       // FS Support : suit l'autorisation de superposition au retour des réglages système.
       await gFFI.serverModel.refreshOverlayPermission();
     });

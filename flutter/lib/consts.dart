@@ -482,6 +482,9 @@ class AndroidChannel {
   static final kFsInstallUpdate = "fs_install_update";
   static final kFsOpenAccessibilityDetails = "fs_open_accessibility_details";
   static final kFsOpenUnknownSources = "fs_open_unknown_sources";
+  // FS Support : journal de plantage (FsCrashJournal.kt)
+  static final kFsJournalIdentity = "fs_journal_identity";
+  static final kFsSendJournal = "fs_send_journal";
 }
 
 // FS Support : option locale forcant les clics par noeuds d'accessibilite (lue cote Kotlin

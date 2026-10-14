@@ -38,6 +38,42 @@ Future<void> fsMigrateLegacyDirectAccess() async {
   } catch (_) {}
 }
 
+// ===========================================================================
+// Journal de plantage (FsCrashJournal.kt) : identite du poste et envoi manuel.
+// ===========================================================================
+String _fsJournalLastId = '';
+
+/// Transmet l'ID et l'uuid FS Support au journal de plantage (une fois par changement).
+Future<void> fsJournalPushIdentity() async {
+  if (!isAndroid) return;
+  try {
+    final id = await bind.mainGetMyId();
+    if (id.isEmpty || id == _fsJournalLastId) return;
+    final uuid = await bind.mainGetUuid();
+    await gFFI.invokeMethod(
+        AndroidChannel.kFsJournalIdentity, {'id': id, 'uuid': uuid});
+    _fsJournalLastId = id;
+  } catch (_) {}
+}
+
+/// Envoie tout de suite le journal (journaux de l'appli + dernieres sorties) a FS Solutions.
+Future<void> fsSendJournal() async {
+  if (!isAndroid) return;
+  showToast('Envoi du journal à FS Solutions…');
+  try {
+    final id = await bind.mainGetMyId();
+    final uuid = await bind.mainGetUuid();
+    final res = await gFFI.invokeMethodWithResult<Map<dynamic, dynamic>>(
+        AndroidChannel.kFsSendJournal, {'id': id, 'uuid': uuid});
+    final message = (res != null && res['message'] is String)
+        ? res['message'] as String
+        : 'Envoi du journal impossible.';
+    showToast(message);
+  } catch (e) {
+    showToast('Envoi du journal impossible : $e');
+  }
+}
+
 /// Ouvre l'assistant de mise en place en plein ecran.
 Future<void> showFsClientScreenWizard(
     BuildContext context, ServerModel serverModel) async {
@@ -190,6 +226,15 @@ class _FsClientScreenSectionState extends State<FsClientScreenSection> {
               const SizedBox(width: 12),
               FsToggle(value: _forceClicks, onChanged: (v) => _setForceClicks(v)),
             ],
+          ),
+          const SizedBox(height: 16),
+          // FS Support : envoi du journal sans terminal ni ADB (plantage, comportement anormal).
+          FsButton(
+            label: 'Envoyer le journal à FS Solutions',
+            leading: Icons.bug_report_outlined,
+            kind: FsButtonKind.ghost,
+            expand: true,
+            onPressed: () => fsSendJournal(),
           ),
         ],
       ),
