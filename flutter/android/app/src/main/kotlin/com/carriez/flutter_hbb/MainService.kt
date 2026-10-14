@@ -66,6 +66,9 @@ const val MIME_TYPE = MediaFormat.MIMETYPE_VIDEO_VP9
 
 const val MAX_SCREEN_SIZE = 1200
 
+// FS Support (mode Ecran client) : grand cote maximal de la capture (voir updateScreenInfo).
+const val FS_CLIENT_SCREEN_MAX_CAPTURE = 1920
+
 const val VIDEO_KEY_BIT_RATE = 1024_000
 const val VIDEO_KEY_FRAME_RATE = 30
 
@@ -402,9 +405,27 @@ class MainService : Service() {
         if (w != 0 && h != 0) {
             if (isHalfScale == true && (w > MAX_SCREEN_SIZE || h > MAX_SCREEN_SIZE)) {
                 scale = 2
+            }
+            // FS Support (mode Ecran client) : un ecran interactif 4K capture en pleine taille, c'est
+            // quatre tampons RGBA de 33 Mo cote Android plus autant de copies cote Rust, sur des
+            // boitiers souvent justes en memoire. On plafonne la capture des le depart (grand cote
+            // <= FS_CLIENT_SCREEN_MAX_CAPTURE) : pas de changement de taille, donc pas d'arret /
+            // redemarrage de la capture, au debut de chaque session.
+            val clientScreenCap = FsClientScreen.isEnabled(this)
+            if (clientScreenCap) {
+                while (max(w, h) / scale > FS_CLIENT_SCREEN_MAX_CAPTURE) {
+                    scale++
+                }
+            }
+            if (scale > 1) {
                 w /= scale
                 h /= scale
                 dpi /= scale
+                if (clientScreenCap) {
+                    // Dimensions paires (encodeurs).
+                    w -= w % 2
+                    h -= h % 2
+                }
             }
             if (SCREEN_INFO.width != w) {
                 SCREEN_INFO.width = w
