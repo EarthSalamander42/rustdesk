@@ -292,6 +292,19 @@ pub fn clear_codec_info() {
             Ok(JObject::null())
         })?;
 */
+/// FS Support : une exception Java levée par un rappel Kotlin (rustSetByName, rustPointerInput…)
+/// restait en suspens sur le fil Rust appelant, qui n'est jamais rendu à la JVM : chaque appel JNI
+/// suivant sur ce fil partait avec une exception en attente (le processus est tué net quand CheckJNI
+/// est actif, ce qui est le cas des ROM « userdebug » de nombreux écrans interactifs). On écrit la
+/// pile dans logcat (exception_describe) puis on l'efface.
+fn fs_clear_java_exception(env: &JNIEnv, what: &str) {
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_describe();
+        let _ = env.exception_clear();
+        log::error!("FS Support : exception Java dans {} (journalisée puis effacée)", what);
+    }
+}
+
 pub fn call_main_service_pointer_input(kind: &str, mask: i32, x: i32, y: i32) -> JniResult<()> {
     if let (Some(jvm), Some(ctx)) = (
         JVM.read().unwrap().as_ref(),
@@ -299,7 +312,7 @@ pub fn call_main_service_pointer_input(kind: &str, mask: i32, x: i32, y: i32) ->
     ) {
         let mut env = jvm.attach_current_thread_as_daemon()?;
         let kind = if kind == "touch" { 0 } else { 1 };
-        env.call_method(
+        let res = env.call_method(
             ctx,
             "rustPointerInput",
             "(IIII)V",
@@ -309,7 +322,9 @@ pub fn call_main_service_pointer_input(kind: &str, mask: i32, x: i32, y: i32) ->
                 JValue::Int(x),
                 JValue::Int(y),
             ],
-        )?;
+        );
+        fs_clear_java_exception(&env, "rustPointerInput");
+        res?;
         return Ok(());
     } else {
         return Err(JniError::ThrowFailed(-1));
@@ -324,12 +339,14 @@ pub fn call_main_service_key_event(data: &[u8]) -> JniResult<()> {
         let mut env = jvm.attach_current_thread_as_daemon()?;
         let data = env.byte_array_from_slice(data)?;
 
-        env.call_method(
+        let res = env.call_method(
             ctx,
             "rustKeyEventInput",
             "([B)V",
             &[JValue::Object(&JObject::from(data))],
-        )?;
+        );
+        fs_clear_java_exception(&env, "rustKeyEventInput");
+        res?;
         return Ok(());
     } else {
         return Err(JniError::ThrowFailed(-1));
@@ -346,7 +363,9 @@ where
         CLIPBOARD_MANAGER.read().unwrap().as_ref(),
     ) {
         let mut env = jvm.attach_current_thread()?;
-        env.call_method(cm, name, sig, args)?;
+        let res = env.call_method(cm, name, sig, args);
+        fs_clear_java_exception(&env, "ClipboardManager");
+        res?;
         return Ok(());
     } else {
         return Err(JniError::ThrowFailed(-1));
@@ -361,12 +380,14 @@ pub fn call_clipboard_manager_update_clipboard(data: &[u8]) -> JniResult<()> {
         let mut env = jvm.attach_current_thread()?;
         let data = env.byte_array_from_slice(data)?;
 
-        env.call_method(
+        let res = env.call_method(
             cm,
             "rustUpdateClipboard",
             "([B)V",
             &[JValue::Object(&JObject::from(data))],
-        )?;
+        );
+        fs_clear_java_exception(&env, "rustUpdateClipboard");
+        res?;
         return Ok(());
     } else {
         return Err(JniError::ThrowFailed(-1));
@@ -401,8 +422,9 @@ pub fn call_main_service_get_by_name(name: &str) -> JniResult<String> {
             let res = env.get_string(&res)?;
             let res = res.to_string_lossy().to_string();
             Ok(res)
-        })?;
-        Ok(res)
+        });
+        fs_clear_java_exception(&env, "rustGetByName");
+        Ok(res?)
     } else {
         return Err(JniError::ThrowFailed(-1));
     }
@@ -418,7 +440,7 @@ pub fn call_main_service_set_by_name(
         MAIN_SERVICE_CTX.read().unwrap().as_ref(),
     ) {
         let mut env = jvm.attach_current_thread_as_daemon()?;
-        env.with_local_frame(10, |env| -> JniResult<()> {
+        let res = env.with_local_frame(10, |env| -> JniResult<()> {
             let name = env.new_string(name)?;
             let arg1 = env.new_string(arg1.unwrap_or(""))?;
             let arg2 = env.new_string(arg2.unwrap_or(""))?;
@@ -434,7 +456,9 @@ pub fn call_main_service_set_by_name(
                 ],
             )?;
             Ok(())
-        })?;
+        });
+        fs_clear_java_exception(&env, "rustSetByName");
+        res?;
         return Ok(());
     } else {
         return Err(JniError::ThrowFailed(-1));

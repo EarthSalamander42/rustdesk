@@ -36,6 +36,12 @@ impl Capturer {
 
 impl crate::TraitCapturer for Capturer {
     fn frame<'a>(&'a mut self, _timeout: Duration) -> io::Result<Frame<'a>> {
+        // FS Support : taille d'écran encore inconnue (0×0 quand `screen_size` a échoué côté Kotlin) :
+        // PixelBuffer::new diviserait par zéro, panique = arrêt net de l'appli (panic = 'abort').
+        if self.width() == 0 || self.height() == 0 {
+            Display::refresh_size();
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
         if get_video_raw(&mut self.rgba, &mut self.saved_raw_data).is_some() {
             Ok(Frame::PixelBuffer(PixelBuffer::new(
                 &self.rgba,
@@ -57,7 +63,8 @@ pub struct PixelBuffer<'a> {
 
 impl<'a> PixelBuffer<'a> {
     pub fn new(data: &'a [u8], width: usize, height: usize) -> Self {
-        let stride0 = data.len() / height;
+        // FS Support : jamais de division par zéro (voir Capturer::frame).
+        let stride0 = if height == 0 { 0 } else { data.len() / height };
         let mut stride = Vec::new();
         stride.push(stride0);
         PixelBuffer {
