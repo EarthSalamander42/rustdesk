@@ -1823,35 +1823,44 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -u
+          # Pas de -e : chaque contrôle est signalé, puis le relevé est envoyé quoi qu'il arrive.
+          set +e +o pipefail
           APK="signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk"
-          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)"
           OUT=fs-icones-apk
           mkdir -p "$OUT"
           erreur=0
-          ICONE="$("$AAPT" dump badging "$APK" | sed -n "s/^application: .* icon='\([^']*\)'.*/\1/p")"
+          # La compilation raccourcit les chemins des ressources (res/xY.png) : on passe par la table d'aapt2.
+          "$BT/aapt2" dump resources "$APK" > "$OUT/ressources.txt"
+          ICONE="$("$BT/aapt" dump badging "$APK" | sed -n "s/^application: .* icon='\([^']*\)'.*/\1/p")"
+          MONO_ID="$(awk '$1 == "resource" && $3 == "mipmap/ic_launcher_monochrome" { print $2 }' "$OUT/ressources.txt")"
           {
             echo "== Icône de l'application (aapt dump badging)"
-            "$AAPT" dump badging "$APK" | grep -E "^application(-icon-[0-9]+)?:" | sed 's/label=.* icon=/icon=/'
+            "$BT/aapt" dump badging "$APK" | grep -E "^application(-icon-[0-9]+)?:" | sed 's/label=.* icon=/icon=/'
             echo
-            echo "== ${ICONE} (icône adaptative)"
-            "$AAPT" dump xmltree "$APK" "$ICONE"
+            echo "== ${ICONE} (icône adaptative ; ic_launcher_monochrome = ${MONO_ID})"
+            "$BT/aapt" dump xmltree "$APK" "$ICONE"
             echo
-            echo "== Ressources"
-            "$AAPT" dump --values resources "$APK" | grep -A1 -E "(mipmap/ic_launcher|mipmap/ic_stat_logo|color/ic_launcher_background)" | grep -vE '^--$'
+            echo "== Ressources (aapt2 dump resources)"
+            awk '$1 == "resource" { garde = ($3 ~ /^(mipmap\/(ic_launcher|ic_stat_logo)|color\/ic_launcher_background)/) } garde' "$OUT/ressources.txt"
             echo
-            echo "== Images (largeur × hauteur)"
-            unzip -o -q "$APK" 'res/mipmap-*' -d "$OUT/apk"
-            for f in $(cd "$OUT/apk" && ls res/mipmap-*/*.png | sort); do
-              echo "$f : $(file -b "$OUT/apk/$f" | sed -n 's/^PNG image data, \([0-9]* x [0-9]*\),.*/\1/p')"
-            done
+            echo "== Images PNG des mipmaps dans l'APK (largeur x hauteur)"
+            awk '$1 == "resource" { r = $3 } $2 == "(file)" && $4 == "type=PNG" && r ~ /^mipmap\// { print r, $1, $3 }' "$OUT/ressources.txt" \
+              | while read -r r conf chemin; do
+                  echo "$r $conf $chemin : $(unzip -p "$APK" "$chemin" | file -b - | sed -n 's/^PNG image data, \([0-9]* x [0-9]*\),.*/\1/p')"
+                done
           } > "$OUT/logo-android-apk.txt" 2>&1
           cat "$OUT/logo-android-apk.txt"
-          grep -q "ic_launcher_monochrome" "$OUT/logo-android-apk.txt" || { echo "::error::couche monochrome absente de l'APK"; erreur=1; }
-          grep -qiE "ic_launcher_background.*#fff4efe2|#fff4efe2" "$OUT/logo-android-apk.txt" || { echo "::error::fond de l'icône adaptative différent de #f4efe2"; erreur=1; }
+          [ -n "$MONO_ID" ] || { echo "::error::ressource mipmap/ic_launcher_monochrome absente de l'APK"; erreur=1; }
+          "$BT/aapt" dump xmltree "$APK" "$ICONE" | grep -A1 "E: monochrome" | grep -q "@${MONO_ID:-absent}" \
+            || { echo "::error::l'icône adaptative ne pointe pas sur ic_launcher_monochrome"; erreur=1; }
+          grep -A3 "color/ic_launcher_background" "$OUT/logo-android-apk.txt" | grep -qi "#fff4efe2" \
+            || { echo "::error::fond de l'icône adaptative différent de #f4efe2"; erreur=1; }
           for d in mdpi:24 hdpi:36 xhdpi:48 xxhdpi:72 xxxhdpi:96; do
-            f="$OUT/apk/res/mipmap-${d%%:*}-v4/ic_stat_logo.png"; [ -f "$f" ] || f="$OUT/apk/res/mipmap-${d%%:*}/ic_stat_logo.png"
-            file -b "$f" 2> /dev/null | grep -q "${d##*:} x ${d##*:}" || { echo "::error::ic_stat_logo ${d%%:*} : attendu ${d##*:} px"; erreur=1; }
+            grep -E "^mipmap/ic_stat_logo \(${d%%:*}(-v4)?\) " "$OUT/logo-android-apk.txt" | grep -q ": ${d##*:} x ${d##*:}$" \
+              || { echo "::error::ic_stat_logo ${d%%:*} : attendu ${d##*:} px"; erreur=1; }
+            grep -E "^mipmap/ic_launcher_monochrome \(${d%%:*}(-v4)?\) " "$OUT/logo-android-apk.txt" | grep -q ": $(( ${d##*:} * 9 / 2 )) x" \
+              || { echo "::error::ic_launcher_monochrome ${d%%:*} : attendu $(( ${d##*:} * 9 / 2 )) px"; erreur=1; }
           done
           gh release upload fs-test "$OUT/logo-android-apk.txt" -R "$GITHUB_REPOSITORY" --clobber \
             || { echo '::error::envoi vers fs-test impossible'; exit 1; }
