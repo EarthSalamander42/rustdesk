@@ -31,7 +31,7 @@ use crate::{
     create_symmetric_key_msg, decode_id_pk, decode_id_pk_dtls, dtls_fingerprint_bound, get_rs_pk,
     is_keyboard_mode_supported,
     kcp_stream::KcpStream,
-    secure_tcp, secure_tcp_required,
+    secure_tcp_required,
     ui_interface::{get_builtin_option, resolve_avatar_url, use_texture_render},
     ui_session_interface::{InvokeUiSession, Session},
 };
@@ -846,8 +846,10 @@ impl Client {
             NatType::from_i32(my_nat_type).unwrap_or(NatType::UNKNOWN_NAT)
         };
 
-        let switch_code = interface.get_switch_code();
-        let legacy_secure = !key.is_empty() && (!token.is_empty() || !switch_code.is_empty());
+        let mut token = token;
+        let mut switch_code = interface.get_switch_code();
+        let mut legacy_secure =
+            crate::fs_rendezvous::identifiants_a_proteger(&key, &token, &switch_code);
         let carries_offer = webrtc_offerer.as_ref().and_then(|g| g.stream()).is_some();
         // Counted from before the key exchange, so the exchange spends the UDP NAT test's own
         // wait rather than replacing it: the test runs beside both.
@@ -875,9 +877,24 @@ impl Client {
             }
         }
         if !exchanged && legacy_secure {
-            secure_tcp(&mut socket, &key)
-                .await
-                .map_err(|e| anyhow!("Failed to secure tcp: {}", e))?;
+            // FS Support : avec un compte FS Connect, le jeton du compte rendait l'échange de clé
+            // obligatoire ; hbbs libre ne le fait jamais et toute prise en main échouait après
+            // 18 s (« Failed to secure tcp: deadline has elapsed »). Attente bornée, puis
+            // connexion comme un client sans compte : socket neuf, ni jeton ni code d'inversion.
+            let secure = crate::fs_rendezvous::securiser_ou_retirer_identifiants(
+                &mut socket,
+                &rendezvous_server,
+                &key,
+                crate::fs_rendezvous::DELAI_ECHANGE,
+            )
+            .await
+            .map_err(|e| anyhow!("Failed to secure tcp: {}", e))?;
+            if !secure {
+                token.clear();
+                switch_code.clear();
+                legacy_secure = false;
+                my_addr = socket.local_addr();
+            }
         }
         // A token or switch code has always taken this socket straight to the punch without
         // waiting for the UDP NAT test. The WebRTC exchange does not replace that wait, it only
@@ -1795,8 +1812,21 @@ impl Client {
                 .await
                 .with_context(|| "Failed to connect to rendezvous server")?;
 
-            if !key.is_empty() && (!token.is_empty() || !switch_code.is_empty()) {
-                secure_tcp(&mut socket, key).await?;
+            // FS Support : même règle que la demande de prise en main (voir fs_rendezvous) ;
+            // serveur sans échange de clé = demande de relais sans jeton ni code d'inversion.
+            let mut token = token;
+            let mut switch_code = switch_code;
+            if crate::fs_rendezvous::identifiants_a_proteger(key, token, switch_code)
+                && !crate::fs_rendezvous::securiser_ou_retirer_identifiants(
+                    &mut socket,
+                    rendezvous_server,
+                    key,
+                    crate::fs_rendezvous::DELAI_ECHANGE,
+                )
+                .await?
+            {
+                token = "";
+                switch_code = "";
             }
 
             ipv4 = socket.local_addr().is_ipv4();

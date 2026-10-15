@@ -42,6 +42,8 @@ mod auth_2fa;
 mod fs_support;
 // FS Support : jeton d'enrôlement (nom du fichier téléchargé, lien fs-support://enrol) envoyé dans le sysinfo.
 mod fs_enrolment;
+// FS Support : jeton du compte FS Connect et serveur de rendez-vous sans échange de clé (hbbs libre).
+mod fs_rendezvous;
 #[cfg(not(target_os = "ios"))]
 mod clipboard;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
