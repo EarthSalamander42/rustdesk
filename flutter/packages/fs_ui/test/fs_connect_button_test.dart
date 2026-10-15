@@ -229,6 +229,8 @@ void main() {
         await tester.pumpWidget(_app(th, SizedBox(key: amorce, width: 10, height: 10)));
         await tester.runAsync(() => precacheImage(
             const ExactAssetImage(FsConnectMonogram.asset, package: 'fs_ui', scale: 1), tester.element(find.byKey(amorce))));
+        // Ombres réelles (flutter_test les dessine pleines par défaut) ; rétabli avant la fin du test.
+        debugDisableShadows = false;
         final cle = GlobalKey();
         await tester.pumpWidget(_app(
           th,
@@ -266,6 +268,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 230));
         expect(tester.takeException(), isNull);
         await expectLater(find.byKey(cle), matchesGoldenFile('captures/fs-connect-${th.nom}.png'));
+        debugDisableShadows = true;
       }, tags: ['captures']);
     }
   });
