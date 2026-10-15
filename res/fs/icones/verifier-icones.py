@@ -191,6 +191,12 @@ def verifier():
 # Planches
 
 def police(taille):
+    # La police par défaut de Pillow n'a pas les accents : DejaVu (runners Ubuntu), sinon défaut.
+    for f in ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "DejaVuSans.ttf"):
+        try:
+            return ImageFont.truetype(f, taille)
+        except OSError:
+            pass
     try:
         return ImageFont.load_default(size=taille)
     except TypeError:
@@ -198,31 +204,37 @@ def police(taille):
 
 
 class Planche:
-    def __init__(self, titre, largeur=1400):
-        self.largeur, self.lignes = largeur, []
-        self.titre = titre
+    def __init__(self, titre):
+        self.titre, self.lignes = titre, []
 
     def ligne(self, legende, cases, fond="#ffffff", hauteur=None):
         """cases : liste de (image, étiquette)."""
         h = hauteur or max(im.height for im, _ in cases) + 40
         self.lignes.append((legende, cases, fond, h))
 
+    @staticmethod
+    def pas(im, etiquette):
+        return max(im.width, int(police(13).getlength(etiquette)) + 6, 44) + 22
+
     def enregistrer(self, p):
+        largeur = max([32 + sum(self.pas(im, e) for im, e in cases) + 16 for _, cases, _, _ in self.lignes]
+                      + [int(police(26).getlength(self.titre)) + 48]
+                      + [int(police(17).getlength(l)) + 48 for l, *_ in self.lignes])
         h_total = 70 + sum(h + 34 for *_, h in self.lignes) + 20
-        toile = Image.new("RGBA", (self.largeur, h_total), "#fbfaf6")
+        toile = Image.new("RGBA", (largeur, h_total), "#fbfaf6")
         d = ImageDraw.Draw(toile)
         d.text((24, 20), self.titre, fill="#1d2023", font=police(26))
         y = 70
         for legende, cases, fond, h in self.lignes:
             d.text((24, y), legende, fill="#1d2023", font=police(17))
             y += 26
-            d.rounded_rectangle((16, y, self.largeur - 16, y + h), 10, fill=fond)
+            d.rounded_rectangle((16, y, largeur - 16, y + h), 10, fill=fond)
+            clair = sum(ImageColor.getrgb(fond)) > 384
             x = 32
             for im, etiquette in cases:
                 toile.alpha_composite(im, (x, y + (h - 22 - im.height) // 2))
-                clair = sum(ImageColor.getrgb(fond)) > 384
                 d.text((x, y + h - 20), etiquette, fill="#3b3f43" if clair else "#d8d8d8", font=police(13))
-                x += max(im.width, 44) + 22
+                x += self.pas(im, etiquette)
             y += h + 8
         toile.convert("RGB").save(p, optimize=True)
 
