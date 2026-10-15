@@ -13,6 +13,7 @@ export 'src/typography.dart';
 export 'src/widgets/android.dart';
 export 'src/widgets/cards.dart';
 export 'src/widgets/devices.dart';
+export 'src/widgets/fs_connect_button.dart';
 export 'src/widgets/home.dart';
 export 'src/widgets/install.dart';
 export 'src/widgets/login_status.dart';

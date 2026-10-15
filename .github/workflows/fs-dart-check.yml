@@ -25,6 +25,9 @@ jobs:
   analyze:
     needs: bridge
     runs-on: ubuntu-22.04
+    # Écriture : seulement pour déposer les captures du bouton FS Connect dans la pré-release fs-test.
+    permissions:
+      contents: write
     steps:
       - name: Checkout source code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -74,7 +77,7 @@ jobs:
         run: |
           set -u
           cd flutter/packages/fs_ui
-          if flutter test --reporter expanded > ../../../fs-ui-tests.txt 2>&1; then
+          if flutter test --exclude-tags captures --reporter expanded > ../../../fs-ui-tests.txt 2>&1; then
             n=$(grep -cE '^[0-9:]+ \+[0-9]+' ../../../fs-ui-tests.txt || true)
             echo "::notice title=Tests fs_ui::$(tail -n 1 ../../../fs-ui-tests.txt)"
             exit 0
@@ -83,3 +86,37 @@ jobs:
           all=$(grep -E '\[E\]|Expected:|Actual:|Error|Exception|overflowed' ../../../fs-ui-tests.txt | head -n 40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
           echo "::error title=Tests fs_ui en échec::${all}"
           exit 1
+
+      # Planches du bouton « Continuer avec FS Connect » (15/10/2026) : images produites par les tests « captures »
+      # (--update-goldens : rien n'est comparé), puis déposées dans la pré-release publique fs-test, que le site et la
+      # mise à jour automatique ne lisent pas : visibles sans compte GitHub. Branches fs/bouton-** et fs/captures-**.
+      # Le prochain build de test (fs-support-test.yml) vide fs-test : les planches partent avec.
+      - name: Captures fs_ui (pré-release fs-test)
+        if: ${{ !cancelled() && (startsWith(github.ref_name, 'fs/bouton-') || startsWith(github.ref_name, 'fs/captures-')) }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          cd flutter/packages/fs_ui
+          if ! flutter test --tags captures --update-goldens > ../../../fs-ui-captures.txt 2>&1; then
+            tail -n 40 ../../../fs-ui-captures.txt
+            all=$(grep -E '\[E\]|Expected:|Actual:|Error|Exception|overflowed' ../../../fs-ui-captures.txt | head -n 30 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Captures fs_ui en échec::${all}"
+            exit 1
+          fi
+          ls test/captures/*.png > /dev/null 2>&1 || { echo '::error::aucune capture produite'; exit 1; }
+          if ! gh release view fs-test -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create fs-test -R "$GITHUB_REPOSITORY" --prerelease --target master \
+              --title "FS Support : test" \
+              --notes "Pré-release de test : jamais lue par le site ni par la mise à jour automatique." \
+              || { echo '::error::création de la pré-release fs-test impossible'; exit 1; }
+          fi
+          liens=""
+          for f in test/captures/*.png; do
+            nom="capture-$(basename "$f")"
+            cp "$f" "$nom"
+            gh release upload fs-test "$nom" -R "$GITHUB_REPOSITORY" --clobber || { echo "::error::envoi de $nom impossible"; exit 1; }
+            liens="${liens}https://github.com/${GITHUB_REPOSITORY}/releases/download/fs-test/${nom}%0A"
+          done
+          echo "::notice title=Captures FS Connect (${GITHUB_SHA::8})::${liens}"

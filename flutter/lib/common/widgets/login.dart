@@ -15,6 +15,7 @@ import './dialog.dart';
 import './oidc_auth_status.dart';
 import '../../fs/fs_saas_devices.dart' show kFsConnectOnly;
 import '../../fs/fs_login_status.dart';
+import 'package:fs_ui/fs_ui.dart' show FsConnectButton, FsMotion, FsStrings;
 
 const kOpSvgList = [
   'github',
@@ -464,8 +465,115 @@ class _WidgetOPState extends State<WidgetOP> {
     return _authAttempt;
   }
 
+  Future<void> _startAuth() async {
+    if (!widget.canStartAuth()) {
+      return;
+    }
+    final authAttempt = _resetState();
+    try {
+      final started = await widget.startAuth(widget.config.op);
+      if (!started) {
+        return;
+      }
+    } catch (e) {
+      await _handleAuthFailure(
+        authAttempt,
+        e,
+        'start account authentication',
+      );
+      return;
+    }
+    if (!mounted ||
+        authAttempt != _authAttempt ||
+        widget.curOP.value != widget.config.op) {
+      return;
+    }
+    _beginQueryState(authAttempt);
+  }
+
+  // FS Support : « Annuler » sous le bouton pendant la connexion (le navigateur peut rester ouvert).
+  Future<void> _cancelFsAuth() async {
+    _updateTimer?.cancel();
+    try {
+      await widget.cancelAuth(widget.config.op);
+    } catch (error, stackTrace) {
+      debugPrint('Failed to cancel account authentication $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _invalidateAuthAttempt();
+      _stateMsg = '';
+      _failedMsg = '';
+      if (widget.curOP.value == widget.config.op) {
+        widget.curOP.value = '';
+      }
+    });
+  }
+
+  // FS Support (15/10/2026) : le bouton du SaaS (fs_ui FsConnectButton) au lieu du bouton RustDesk
+  // (couleur tirée du nom, icône envoyée par le serveur, 200 px de large).
+  Widget _buildFsConnect(BuildContext context) {
+    return Obx(() {
+      final op = widget.config.op;
+      if (widget.curOP.isNotEmpty && widget.curOP.value != op) {
+        _failedMsg = '';
+      }
+      final busy = widget.curOP.value == op;
+      final blocked = widget.curOP.value == 'rustdesk' || !widget.canStartAuth();
+      final failed = _failedMsg.trim();
+      final detail = failed.isEmpty ? '' : translate(failed);
+      final authAttempt = _authAttempt;
+      final authUrl = _url;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FsConnectButton(
+            loading: busy,
+            onPressed: busy || blocked ? null : () => unawaited(_startAuth()),
+            onCancel: busy ? () => unawaited(_cancelFsAuth()) : null,
+            error: failed.isEmpty ? null : FsStrings.fsConnectFailed,
+            // « Failed » seul n'apprend rien : détail affiché seulement s'il dit autre chose.
+            errorDetail: failed.isEmpty || failed == 'Failed' ? null : detail,
+          ),
+          AnimatedSize(
+            duration: FsMotion.slide,
+            curve: FsMotion.ease,
+            alignment: Alignment.topCenter,
+            child: busy && _stateMsg.isNotEmpty && failed.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: OidcAuthStatus(
+                      message: FsStrings.fsConnectBrowserHint,
+                      browserFallbackPrompt: translate(
+                        "Browser didn't open? Use the url below to sign in.",
+                      ),
+                      authUrl: authUrl,
+                      copyLabel: translate('Copy to clipboard'),
+                      onCopy: authUrl.isEmpty
+                          ? null
+                          : () => _runCurrentAuthUrlAction(
+                                authAttempt,
+                                authUrl,
+                                _copyAuthUrl,
+                              ),
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (kFsConnectOnly) {
+      return _buildFsConnect(context);
+    }
     return Column(
       children: [
         ButtonOP(
@@ -475,31 +583,7 @@ class _WidgetOPState extends State<WidgetOP> {
           primaryColor: str2color(widget.config.op, 0x7f),
           height: 36,
           canStartAuth: widget.canStartAuth,
-          onTap: () async {
-            if (!widget.canStartAuth()) {
-              return;
-            }
-            final authAttempt = _resetState();
-            try {
-              final started = await widget.startAuth(widget.config.op);
-              if (!started) {
-                return;
-              }
-            } catch (e) {
-              await _handleAuthFailure(
-                authAttempt,
-                e,
-                'start account authentication',
-              );
-              return;
-            }
-            if (!mounted ||
-                authAttempt != _authAttempt ||
-                widget.curOP.value != widget.config.op) {
-              return;
-            }
-            _beginQueryState(authAttempt);
-          },
+          onTap: _startAuth,
         ),
         Obx(() {
           if (widget.curOP.isNotEmpty &&
@@ -618,6 +702,19 @@ class LoginWidgetOP extends StatelessWidget {
         .toList();
     if (children.isNotEmpty) {
       children.removeLast();
+    }
+    if (kFsConnectOnly) {
+      return ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: SizedBox(
+          width: double.infinity,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: children,
+          ),
+        ),
+      );
     }
     return SingleChildScrollView(
         child: Container(
