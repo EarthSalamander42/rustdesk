@@ -106,6 +106,13 @@ class FsStrings {
       'Le serveur FS ne répond pas correctement pour le moment${code == null ? '' : ' (code $code)'}. Réessayez dans un instant.';
   static const String retry = 'Réessayer';
 
+  // Bouton « Continuer avec FS Connect » (15/10/2026) : libellé du SaaS (page de connexion)
+  static const String fsConnectContinue = 'Continuer avec FS Connect';
+  static const String fsConnectInProgress = 'Connexion en cours…';
+  static const String fsConnectCancel = 'Annuler';
+  static const String fsConnectBrowserHint = 'Terminez la connexion dans la page FS Connect ouverte dans votre navigateur.';
+  static const String fsConnectFailed = 'La connexion FS Connect n’a pas abouti. Réessayez.';
+
   // Synchronisation des appareils avec le compte FS Solutions (14/10/2026)
   static const String syncLocalOnlyPc =
       'Appareils enregistrés sur ce PC seulement — connectez-vous pour les sauvegarder';

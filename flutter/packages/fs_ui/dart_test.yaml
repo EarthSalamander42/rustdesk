@@ -1,0 +1,4 @@
+# Étiquettes des tests fs_ui.
+# captures : planches PNG du bouton FS Connect (CI : --update-goldens, dépôt dans la pré-release fs-test).
+tags:
+  captures:

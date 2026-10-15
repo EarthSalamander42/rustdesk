@@ -36,5 +36,20 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   await _charger('packages/fs_ui/Inter', inter);
   await _charger('packages/fs_ui/ArchivoBlack', ['ArchivoBlack-Regular.ttf']);
   await _charger('packages/fs_ui/JetBrainsMono', mono);
+  // Icônes Material (sinon des carrés dans les captures) : police du SDK Flutter utilisé par le test.
+  // flutter_tester vit dans <FLUTTER_ROOT>/bin/cache/artifacts/engine/<hôte>/ : la police est dans artifacts/material_fonts.
+  final racine = Platform.environment['FLUTTER_ROOT'];
+  final candidats = [
+    if (racine != null) '$racine/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+    '${File(Platform.resolvedExecutable).parent.parent.parent.path}/material_fonts/MaterialIcons-Regular.otf',
+  ];
+  for (final chemin in candidats) {
+    final icones = File(chemin);
+    if (icones.existsSync()) {
+      final loader = FontLoader('MaterialIcons')..addFont(icones.readAsBytes().then((b) => ByteData.sublistView(b)));
+      await loader.load();
+      break;
+    }
+  }
   await testMain();
 }
