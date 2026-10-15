@@ -451,6 +451,8 @@ jobs:
           fs_tests fs_enrolment::
           # Compte FS Connect + hbbs libre (sans échange de clé) : la prise en main continue.
           fs_tests fs_rendezvous::
+          # Zone de notification : bonne taille du casque tirée de res/tray-icon.ico.
+          fs_tests fs_tray::
           echo "::notice title=Tests unitaires Rust Windows::durée $(( $(date +%s) - started )) s"
 
       - name: Paquet portable FS Support (compilation et tests)
@@ -488,6 +490,21 @@ jobs:
             exit 1
           fi
           echo "::notice title=cargo test paquet portable::${ran} test(s) lancé(s) — ${result} — durée $(( $(date +%s) - started )) s"
+
+      # FS Support : branches fs/logo-* : icône réellement embarquée dans rustdesk.exe (tailles, octets identiques à
+      # res/icon.ico) et dans data\flutter_assets ; planche et relevé déposés dans la pré-release publique fs-test.
+      - name: Icône de l'exécutable FS Support (pré-release fs-test)
+        if: ${{ startsWith(github.ref_name, 'fs/logo-') }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./res/fs/icones/icones-exe.ps1 -Exe ./rustdesk/rustdesk.exe -Sortie ./fs-icones-exe
+          $controle = $LASTEXITCODE
+          gh release upload fs-test (Get-ChildItem ./fs-icones-exe).FullName -R $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE) { Write-Host '::error::envoi vers fs-test impossible'; exit 1 }
+          Write-Host "::notice title=Icône exe (fs-test)::https://github.com/$env:GITHUB_REPOSITORY/releases/download/fs-test/logo-windows-exe.png"
+          exit $controle
 
       - name: find Runner.res
         # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
@@ -1101,23 +1118,6 @@ jobs:
           cargo -V
           rustc -V
 
-      - name: Build FS Support macOS icon
-        shell: bash
-        run: |
-          ICONSET="$(mktemp -d)/AppIcon.iconset"
-          mkdir -p "$ICONSET"
-          sips -z 16 16 res/mac-icon.png --out "$ICONSET/icon_16x16.png"
-          sips -z 32 32 res/mac-icon.png --out "$ICONSET/icon_16x16@2x.png"
-          sips -z 32 32 res/mac-icon.png --out "$ICONSET/icon_32x32.png"
-          sips -z 64 64 res/mac-icon.png --out "$ICONSET/icon_32x32@2x.png"
-          sips -z 128 128 res/mac-icon.png --out "$ICONSET/icon_128x128.png"
-          sips -z 256 256 res/mac-icon.png --out "$ICONSET/icon_128x128@2x.png"
-          sips -z 256 256 res/mac-icon.png --out "$ICONSET/icon_256x256.png"
-          sips -z 512 512 res/mac-icon.png --out "$ICONSET/icon_256x256@2x.png"
-          sips -z 512 512 res/mac-icon.png --out "$ICONSET/icon_512x512.png"
-          sips -z 1024 1024 res/mac-icon.png --out "$ICONSET/icon_512x512@2x.png"
-          iconutil -c icns "$ICONSET" -o flutter/macos/Runner/AppIcon.icns
-
       - name: Build rustdesk
         run: |
           if [ "${{ matrix.job.target }}" = "aarch64-apple-darwin" ]; then
@@ -1128,6 +1128,44 @@ jobs:
             sed -i -e "s/MACOSX_DEPLOYMENT_TARGET = [0-9]*.[0-9]*;/MACOSX_DEPLOYMENT_TARGET = ${MIN_MACOS_VERSION};/" flutter/macos/Runner.xcodeproj/project.pbxproj
           fi
           ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.job.extra-build-args }}
+
+      # FS Support : branches fs/logo-* : icône réellement embarquée dans l'app (CFBundleIconFile, toutes les tailles
+      # de l'ICNS, identique au dépôt) ; relevé et images 16 / 32 / 1024 px déposés dans la pré-release publique fs-test.
+      # L'ICNS est versionné (flutter/macos/Runner/AppIcon.icns, chaque taille dessinée) : il n'est plus recalculé
+      # depuis res/mac-icon.png (512 px, que sips agrandissait en 1024).
+      - name: Icône de l'app macOS FS Support (pré-release fs-test)
+        if: ${{ startsWith(github.ref_name, 'fs/logo-') }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          APP="./flutter/build/macos/Build/Products/Release/${{ env.FS_SUPPORT_APP_NAME }}.app"
+          ICONE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist")"
+          ICNS="$APP/Contents/Resources/${ICONE%.icns}.icns"
+          OUT=fs-icones-macos
+          mkdir -p "$OUT"
+          erreur=0
+          {
+            echo "CFBundleIconFile : $ICONE"
+            if cmp -s "$ICNS" flutter/macos/Runner/AppIcon.icns; then echo "AppIcon.icns : identique au dépôt"; else echo "AppIcon.icns : DIFFÉRENT du dépôt"; fi
+            iconutil -c iconset "$ICNS" -o "$OUT/AppIcon.iconset"
+            for f in "$OUT"/AppIcon.iconset/*.png; do
+              echo "$(basename "$f") : $(sips -g pixelWidth -g pixelHeight "$f" | awk '/pixel/ { printf "%s ", $2 }')"
+            done
+          } > "$OUT/logo-macos-app.txt" 2>&1
+          cat "$OUT/logo-macos-app.txt"
+          cmp -s "$ICNS" flutter/macos/Runner/AppIcon.icns || { echo "::error::AppIcon.icns de l'app différent de celui du dépôt"; erreur=1; }
+          n=$(ls "$OUT"/AppIcon.iconset/*.png 2> /dev/null | wc -l)
+          [ "$n" -ge 10 ] || { echo "::error::icône de l'app : ${n} tailles seulement"; erreur=1; }
+          for t in 16x16 32x32 512x512@2x; do
+            [ -f "$OUT/AppIcon.iconset/icon_${t}.png" ] && cp "$OUT/AppIcon.iconset/icon_${t}.png" "$OUT/logo-macos-app-${t}.png" \
+              || { echo "::error::icône de l'app : pas de ${t}"; erreur=1; }
+          done
+          gh release upload fs-test "$OUT/logo-macos-app.txt" "$OUT"/logo-macos-app-*.png -R "$GITHUB_REPOSITORY" --clobber \
+            || { echo '::error::envoi vers fs-test impossible'; exit 1; }
+          echo "::notice title=Icône macOS (fs-test)::https://github.com/${GITHUB_REPOSITORY}/releases/download/fs-test/logo-macos-app.txt"
+          exit $erreur
 
       - name: create unsigned dmg
         if: env.UPLOAD_ARTIFACT == 'true' || inputs.fs-dmg-artifact
@@ -1775,6 +1813,50 @@ jobs:
           # RustDesk 1.5.0 cible Android 16 (API 36), comme flutter/android/app/build.gradle.
           printf '%s\n' "$BADGING" | grep -q "targetSdkVersion:'36'"
           printf '%s\n' "$BADGING" | grep -q "versionName='${{ env.VERSION }}'"
+
+      # FS Support : branches fs/logo-* : icônes réellement embarquées dans l'APK (icône de l'application, icône
+      # adaptative et sa couche monochrome Android 13+, fond crème, icône de notification, mipmaps par densité) ;
+      # relevé déposé dans la pré-release publique fs-test.
+      - name: Icônes de l'APK FS Support (pré-release fs-test)
+        if: ${{ inputs.build-scope == 'fs-support' && startsWith(github.ref_name, 'fs/logo-') }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          APK="signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          OUT=fs-icones-apk
+          mkdir -p "$OUT"
+          erreur=0
+          ICONE="$("$AAPT" dump badging "$APK" | sed -n "s/^application: .* icon='\([^']*\)'.*/\1/p")"
+          {
+            echo "== Icône de l'application (aapt dump badging)"
+            "$AAPT" dump badging "$APK" | grep -E "^application(-icon-[0-9]+)?:" | sed 's/label=.* icon=/icon=/'
+            echo
+            echo "== ${ICONE} (icône adaptative)"
+            "$AAPT" dump xmltree "$APK" "$ICONE"
+            echo
+            echo "== Ressources"
+            "$AAPT" dump --values resources "$APK" | grep -A1 -E "(mipmap/ic_launcher|mipmap/ic_stat_logo|color/ic_launcher_background)" | grep -vE '^--$'
+            echo
+            echo "== Images (largeur × hauteur)"
+            unzip -o -q "$APK" 'res/mipmap-*' -d "$OUT/apk"
+            for f in $(cd "$OUT/apk" && ls res/mipmap-*/*.png | sort); do
+              echo "$f : $(file -b "$OUT/apk/$f" | sed -n 's/^PNG image data, \([0-9]* x [0-9]*\),.*/\1/p')"
+            done
+          } > "$OUT/logo-android-apk.txt" 2>&1
+          cat "$OUT/logo-android-apk.txt"
+          grep -q "ic_launcher_monochrome" "$OUT/logo-android-apk.txt" || { echo "::error::couche monochrome absente de l'APK"; erreur=1; }
+          grep -qiE "ic_launcher_background.*#fff4efe2|#fff4efe2" "$OUT/logo-android-apk.txt" || { echo "::error::fond de l'icône adaptative différent de #f4efe2"; erreur=1; }
+          for d in mdpi:24 hdpi:36 xhdpi:48 xxhdpi:72 xxxhdpi:96; do
+            f="$OUT/apk/res/mipmap-${d%%:*}-v4/ic_stat_logo.png"; [ -f "$f" ] || f="$OUT/apk/res/mipmap-${d%%:*}/ic_stat_logo.png"
+            file -b "$f" 2> /dev/null | grep -q "${d##*:} x ${d##*:}" || { echo "::error::ic_stat_logo ${d%%:*} : attendu ${d##*:} px"; erreur=1; }
+          done
+          gh release upload fs-test "$OUT/logo-android-apk.txt" -R "$GITHUB_REPOSITORY" --clobber \
+            || { echo '::error::envoi vers fs-test impossible'; exit 1; }
+          echo "::notice title=Icônes APK (fs-test)::https://github.com/${GITHUB_REPOSITORY}/releases/download/fs-test/logo-android-apk.txt"
+          exit $erreur
 
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable

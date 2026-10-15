@@ -56,6 +56,9 @@ mod port_forward_mux;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod tray;
+// FS Support : icône de la zone de notification (Windows) et de la barre des menus (macOS).
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod fs_tray;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod whiteboard;
