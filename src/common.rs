@@ -2333,6 +2333,17 @@ pub async fn secure_tcp_required(conn: &mut Stream, key: &str) -> ResultType<()>
     }
 }
 
+/// FS Support : comme [`secure_tcp_required`], mais distingue un serveur qui ne fait pas
+/// l'échange (`Ok(false)` : hbbs libre, ou serveur d'avant l'échange) d'un échange commencé puis
+/// invalide (`Err`). Utilisé par `fs_rendezvous` pour ne jamais bloquer une prise en main sur un
+/// serveur de rendez-vous qui n'initie pas l'échange. WebSocket : déjà chiffré, `Ok(true)`.
+pub async fn secure_tcp_attempt(conn: &mut Stream, key: &str) -> ResultType<bool> {
+    if use_ws() {
+        return Ok(true);
+    }
+    key_exchange(conn, key, true).await
+}
+
 #[inline]
 fn get_pk(pk: &[u8]) -> Option<[u8; 32]> {
     if pk.len() == 32 {
