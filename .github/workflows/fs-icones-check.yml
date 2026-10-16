@@ -1,0 +1,57 @@
+# FS Support : contrôle des icônes de l'application, sans compilation (une minute).
+# res/fs/icones/verifier-icones.py : tailles des ICO Windows (application, zone de notification), entrées de l'ICNS
+# macOS et silhouettes de la barre des menus, mipmaps Android (couche monochrome Android 13+, notification, fond
+# adaptatif), copies identiques et fichiers bien versionnés (la racine ignore *png). Les planches PNG
+# (logo-windows.png, logo-android.png, logo-macos.png) partent dans la pré-release publique « fs-test », que le site et
+# la mise à jour automatique ne lisent pas : visibles sans compte GitHub. Le prochain fs-support-test.yml vide fs-test.
+# Les icônes réellement embarquées dans l'exe, l'app macOS et l'APK sont relevées par flutter-build.yml
+# (étapes « Icône… (pré-release fs-test) », branches fs/logo-*).
+name: FS icônes check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "fs/logo-**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fs-icones-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  icones:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Contrôle des icônes et planches
+        shell: bash
+        run: |
+          set -u
+          python3 -m venv /tmp/venv-icones
+          /tmp/venv-icones/bin/pip install --quiet "pillow==11.3.0"
+          /tmp/venv-icones/bin/python res/fs/icones/verifier-icones.py --planches planches-icones
+
+      - name: Planches dans la pré-release fs-test
+        if: ${{ !cancelled() && hashFiles('planches-icones/*.png') != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          if ! gh release view fs-test -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create fs-test -R "$GITHUB_REPOSITORY" --prerelease --target master \
+              --title "FS Support : test" \
+              --notes "Pré-release de test : jamais lue par le site ni par la mise à jour automatique." \
+              || { echo '::error::création de la pré-release fs-test impossible'; exit 1; }
+          fi
+          liens=""
+          for f in planches-icones/*.png; do
+            gh release upload fs-test "$f" -R "$GITHUB_REPOSITORY" --clobber || { echo "::error::envoi de $f impossible"; exit 1; }
+            liens="${liens}https://github.com/${GITHUB_REPOSITORY}/releases/download/fs-test/$(basename "$f")%0A"
+          done
+          echo "::notice title=Planches des icônes (${GITHUB_SHA::8})::${liens}"
