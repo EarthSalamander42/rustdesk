@@ -105,6 +105,18 @@ if /usr/bin/pgrep -f "^$SERVEUR" >/dev/null 2>&1; then
 	/usr/bin/pkill -f "^$SERVEUR" 2>/dev/null || true
 fi
 
+# 6 bis. Service système (LaunchDaemon) : relancé sur la nouvelle version s'il est installé.
+# Noms sans espace depuis le 20/10/2026 (fr.fs-solutions.support_*) ; les anciens noms
+# « com.carriez.FS Support_* » n'ont jamais pu fonctionner et sont nettoyés par l'app à l'installation.
+DAEMON_LABEL="fr.fs-solutions.support_service"
+if [ -f "/Library/LaunchDaemons/$DAEMON_LABEL.plist" ]; then
+	if /bin/launchctl kickstart -k "system/$DAEMON_LABEL" >/dev/null 2>&1; then
+		log "service système relancé"
+	else
+		log "service système non relancé (il repartira au prochain démarrage du Mac)"
+	fi
+fi
+
 # 7. Ouverture dans la session de l'utilisateur
 if [ -n "$UID_UTIL" ]; then
 	if en_utilisateur /usr/bin/open "$DEST" >/dev/null 2>&1; then

@@ -183,116 +183,207 @@ pub fn install_service() -> bool {
     is_installed_daemon(false)
 }
 
+// ---------------------------------------------------------------------------
+// FS Support (20/10/2026) : service macOS sans espace dans les noms launchd.
+// Noms et modèles : `crate::fs_mac_service` (testé partout). Scripts root : `privileges_scripts/*.sh`,
+// lancés par un unique AppleScript qui passe chaque argument en `quoted form`. Toute erreur est
+// journalisée ET rangée dans l'option locale `fs-mac-service-install`, lue par l'interface.
+// ---------------------------------------------------------------------------
+
+fn fs_org() -> String {
+    hbb_common::config::ORG.read().unwrap().clone()
+}
+
+fn fs_launchd_names() -> crate::fs_mac_service::LaunchdNames {
+    crate::fs_mac_service::launchd_names(&fs_org(), &crate::get_app_name())
+}
+
+fn fs_legacy_entries() -> Vec<String> {
+    crate::fs_mac_service::legacy_entries(&fs_org(), &crate::get_app_name())
+}
+
+fn fs_legacy_present() -> bool {
+    crate::fs_mac_service::legacy_launchd_names(&fs_org(), &crate::get_app_name())
+        .iter()
+        .any(|n| Path::new(&n.daemon_plist).exists() || Path::new(&n.agent_plist).exists())
+}
+
+fn fs_render_plist(file: &str) -> Option<String> {
+    let template = PRIVILEGES_SCRIPTS_DIR.get_file(file)?.contents_utf8()?;
+    let bundle_id = get_bundle_id().unwrap_or_else(|| "com.carriez.rustdesk".to_owned());
+    Some(crate::fs_mac_service::render_plist(
+        template,
+        &fs_launchd_names(),
+        &crate::get_app_name(),
+        &bundle_id,
+    ))
+}
+
+fn fs_privileged_script(file: &str) -> Option<String> {
+    let common = PRIVILEGES_SCRIPTS_DIR.get_file("common.sh")?.contents_utf8()?;
+    let body = PRIVILEGES_SCRIPTS_DIR.get_file(file)?.contents_utf8()?;
+    Some(format!("{}\n{}", common, body).replace('\r', ""))
+}
+
+const FS_PRIVILEGED_RUNNER: &str = r#"on run argv
+  activate
+  set cmd to "/bin/bash -c " & quoted form of (item 1 of argv) & " fs-support"
+  repeat with i from 3 to count of argv
+    set cmd to cmd & " " & quoted form of (item i of argv)
+  end repeat
+  do shell script cmd with prompt (item 2 of argv) with administrator privileges
+end run"#;
+
+/// Lance un script root (demande du mot de passe administrateur). Erreur = message français.
+fn fs_run_privileged(file: &str, prompt: &str, args: Vec<String>) -> Result<String, String> {
+    let Some(script) = fs_privileged_script(file) else {
+        return Err(format!(
+            "Installation du service FS Support impossible : script {} absent de l'application",
+            file
+        ));
+    };
+    let output = std::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(FS_PRIVILEGED_RUNNER)
+        .arg(script)
+        .arg(prompt)
+        .args(args)
+        .output()
+        .map_err(|e| {
+            format!(
+                "Installation du service FS Support impossible : osascript n'a pas pu démarrer ({})",
+                e
+            )
+        })?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    log::info!(
+        "[fs-mac-service] {} : statut {:?}, sortie {:?}, erreurs {:?}",
+        file,
+        output.status.code(),
+        stdout.trim(),
+        stderr.trim()
+    );
+    if output.status.success() {
+        Ok(stdout)
+    } else {
+        Err(crate::fs_mac_service::french_install_error(
+            &stderr,
+            output.status.code(),
+        ))
+    }
+}
+
+fn fs_set_install_status(value: &str) {
+    hbb_common::config::LocalConfig::set_option(
+        crate::fs_mac_service::INSTALL_STATUS_OPTION.to_owned(),
+        value.to_owned(),
+    );
+}
+
+/// Fichiers de configuration de l'utilisateur et dossier équivalent pour root.
+fn fs_config_copy_args() -> (String, String, String) {
+    let conf1 = hbb_common::config::Config::file();
+    let conf2 = hbb_common::config::Config2::file();
+    let home = hbb_common::config::Config::get_home();
+    let root_dir = conf1
+        .parent()
+        .and_then(|dir| dir.strip_prefix(&home).ok())
+        .map(|rel| Path::new("/var/root").join(rel).to_string_lossy().to_string())
+        .unwrap_or_default();
+    (
+        conf1.to_string_lossy().to_string(),
+        conf2.to_string_lossy().to_string(),
+        root_dir,
+    )
+}
+
 // Remember to check if `update_daemon_agent()` need to be changed if changing `is_installed_daemon()`.
-// No need to merge the existing dup code, because the code in these two functions are too critical.
-// New code should be written in a common function.
 pub fn is_installed_daemon(prompt: bool) -> bool {
-    let daemon = format!("{}_service.plist", crate::get_full_name());
-    let agent = format!("{}_server.plist", crate::get_full_name());
-    let agent_plist_file = format!("/Library/LaunchAgents/{}", agent);
+    let names = fs_launchd_names();
     if !prompt {
         // in macos 13, there is new way to check if they are running or enabled, https://developer.apple.com/documentation/servicemanagement/updating-helper-executables-from-earlier-versions-of-macos#Respond-to-changes-in-System-Settings
-        if !std::path::Path::new(&format!("/Library/LaunchDaemons/{}", daemon)).exists() {
-            return false;
-        }
-        if !std::path::Path::new(&agent_plist_file).exists() {
-            return false;
-        }
-        return true;
+        return Path::new(&names.daemon_plist).exists() && Path::new(&names.agent_plist).exists();
     }
 
-    let Some(install_script) = PRIVILEGES_SCRIPTS_DIR.get_file("install.scpt") else {
+    let (Some(daemon_plist_body), Some(agent_plist_body)) =
+        (fs_render_plist("daemon.plist"), fs_render_plist("agent.plist"))
+    else {
+        let msg = "Installation du service FS Support impossible : modèles launchd absents de l'application";
+        log::error!("{}", msg);
+        fs_set_install_status(&format!("erreur:{}", msg));
         return false;
     };
-    let Some(install_script_body) = install_script.contents_utf8().map(correct_app_name) else {
-        return false;
-    };
-
-    let Some(daemon_plist) = PRIVILEGES_SCRIPTS_DIR.get_file("daemon.plist") else {
-        return false;
-    };
-    let Some(daemon_plist_body) = daemon_plist.contents_utf8().map(correct_app_name) else {
-        return false;
-    };
-
-    let Some(agent_plist) = PRIVILEGES_SCRIPTS_DIR.get_file("agent.plist") else {
-        return false;
-    };
-    let Some(agent_plist_body) = agent_plist.contents_utf8().map(correct_app_name) else {
-        return false;
-    };
+    let (conf1, conf2, root_conf) = fs_config_copy_args();
+    let mut args = vec![
+        daemon_plist_body,
+        agent_plist_body,
+        get_active_username(),
+        names.daemon_plist.clone(),
+        names.agent_plist.clone(),
+        names.daemon_label.clone(),
+        names.agent_label.clone(),
+        conf1,
+        conf2,
+        root_conf,
+    ];
+    args.extend(fs_legacy_entries());
+    fs_set_install_status("en-cours");
+    let prompt_text = format!(
+        "{} doit installer son service de prise en main.",
+        crate::get_app_name()
+    );
 
     std::thread::spawn(move || {
-        match std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(install_script_body)
-            .arg(daemon_plist_body)
-            .arg(agent_plist_body)
-            .arg(&get_active_username())
-            .status()
-        {
-            Err(e) => {
-                log::error!("run osascript failed: {}", e);
-            }
-            _ => {
-                let installed = std::path::Path::new(&agent_plist_file).exists();
-                log::info!("Agent file {} installed: {}", agent_plist_file, installed);
-                if installed {
-                    log::info!("launch server");
-                    std::process::Command::new("launchctl")
-                        .args(&["load", "-w", &agent_plist_file])
-                        .status()
-                        .ok();
-                }
+        let result = fs_run_privileged("install.sh", &prompt_text, args);
+        let installed =
+            Path::new(&names.daemon_plist).exists() && Path::new(&names.agent_plist).exists();
+        log::info!("Agent file {} installed: {}", names.agent_plist, installed);
+        match result {
+            Ok(_) if installed => fs_set_install_status("ok"),
+            Ok(_) => fs_set_install_status(&format!(
+                "erreur:Installation du service FS Support incomplète : {} absent après l'installation.",
+                names.agent_plist
+            )),
+            Err(msg) => {
+                log::error!("[fs-mac-service] {}", msg);
+                fs_set_install_status(&format!("erreur:{}", msg));
             }
         }
     });
     false
 }
 
-fn update_daemon_agent(agent_plist_file: String, update_source_dir: String, sync: bool) {
-    let update_script_file = "update.scpt";
-    let Some(update_script) = PRIVILEGES_SCRIPTS_DIR.get_file(update_script_file) else {
+fn update_daemon_agent(_agent_plist_file: String, update_source_dir: String, sync: bool) {
+    let (Some(daemon_plist_body), Some(agent_plist_body)) =
+        (fs_render_plist("daemon.plist"), fs_render_plist("agent.plist"))
+    else {
+        log::error!("[fs-mac-service] modèles launchd absents, mise à jour impossible");
         return;
     };
-    let Some(update_script_body) = update_script.contents_utf8().map(correct_app_name) else {
-        return;
-    };
+    let names = fs_launchd_names();
+    let app_name = crate::get_app_name();
+    let mut args = vec![
+        daemon_plist_body,
+        agent_plist_body,
+        get_active_username(),
+        std::process::id().to_string(),
+        update_source_dir,
+        names.daemon_plist.clone(),
+        names.agent_plist.clone(),
+        names.daemon_label.clone(),
+        names.agent_label.clone(),
+        format!("/Applications/{}.app", app_name),
+        app_name.clone(),
+    ];
+    args.extend(fs_legacy_entries());
+    let prompt_text = format!("{} doit se mettre à jour.", app_name);
 
-    let Some(daemon_plist) = PRIVILEGES_SCRIPTS_DIR.get_file("daemon.plist") else {
-        return;
-    };
-    let Some(daemon_plist_body) = daemon_plist.contents_utf8().map(correct_app_name) else {
-        return;
-    };
-    let Some(agent_plist) = PRIVILEGES_SCRIPTS_DIR.get_file("agent.plist") else {
-        return;
-    };
-    let Some(agent_plist_body) = agent_plist.contents_utf8().map(correct_app_name) else {
-        return;
-    };
-
-    let func = move || {
-        let mut binding = std::process::Command::new("osascript");
-        let cmd = binding
-            .arg("-e")
-            .arg(update_script_body)
-            .arg(daemon_plist_body)
-            .arg(agent_plist_body)
-            .arg(&get_active_username())
-            .arg(std::process::id().to_string())
-            .arg(update_source_dir);
-        match cmd.status() {
-            Err(e) => {
-                log::error!("run osascript failed: {}", e);
-            }
-            Ok(status) if !status.success() => {
-                log::warn!("run osascript failed with status: {}", status);
-            }
-            _ => {
-                let installed = std::path::Path::new(&agent_plist_file).exists();
-                log::info!("Agent file {} installed: {}", &agent_plist_file, installed);
-            }
+    let func = move || match fs_run_privileged("update.sh", &prompt_text, args) {
+        Err(msg) => log::warn!("run osascript failed: {}", msg),
+        Ok(_) => {
+            let installed = Path::new(&names.agent_plist).exists();
+            log::info!("Agent file {} installed: {}", &names.agent_plist, installed);
         }
     };
     if sync {
@@ -300,16 +391,6 @@ fn update_daemon_agent(agent_plist_file: String, update_source_dir: String, sync
     } else {
         std::thread::spawn(func);
     }
-}
-
-fn correct_app_name(s: &str) -> String {
-    let mut s = s.to_owned();
-    if let Some(bundleid) = get_bundle_id() {
-        s = s.replace("com.carriez.rustdesk", &bundleid);
-    }
-    s = s.replace("rustdesk", &crate::get_app_name().to_lowercase());
-    s = s.replace("RustDesk", &crate::get_app_name());
-    s
 }
 
 fn write_plist_atomically(path: &str, body: &str) -> ResultType<()> {
@@ -335,86 +416,66 @@ fn write_plist_atomically(path: &str, body: &str) -> ResultType<()> {
 }
 
 pub fn write_plists() -> ResultType<()> {
-    let daemon_plist_path = format!(
-        "/Library/LaunchDaemons/com.carriez.{}_service.plist",
-        crate::get_app_name()
-    );
-    let agent_plist_path = format!(
-        "/Library/LaunchAgents/com.carriez.{}_server.plist",
-        crate::get_app_name()
-    );
-    let Some(daemon_plist) = PRIVILEGES_SCRIPTS_DIR.get_file("daemon.plist") else {
+    let names = fs_launchd_names();
+    let Some(daemon_plist_body) = fs_render_plist("daemon.plist") else {
         bail!("daemon.plist not found in embedded resources");
     };
-    let Some(daemon_plist_body) = daemon_plist.contents_utf8().map(correct_app_name) else {
-        bail!("Failed to read daemon.plist");
-    };
-    let Some(agent_plist) = PRIVILEGES_SCRIPTS_DIR.get_file("agent.plist") else {
+    let Some(agent_plist_body) = fs_render_plist("agent.plist") else {
         bail!("agent.plist not found in embedded resources");
     };
-    let Some(agent_plist_body) = agent_plist.contents_utf8().map(correct_app_name) else {
-        bail!("Failed to read agent.plist");
-    };
-    write_plist_atomically(&daemon_plist_path, &daemon_plist_body)?;
-    write_plist_atomically(&agent_plist_path, &agent_plist_body)?;
+    write_plist_atomically(&names.daemon_plist, &daemon_plist_body)?;
+    write_plist_atomically(&names.agent_plist, &agent_plist_body)?;
     log::info!("[write-plists] Wrote daemon and agent plists");
     Ok(())
 }
 
 pub fn uninstall_service(show_new_window: bool, sync: bool) -> bool {
     // to-do: do together with win/linux about refactory start/stop service
-    if !is_installed_daemon(false) {
+    // FS Support : nettoie aussi les anciens noms (`com.carriez.FS Support_*`).
+    if !is_installed_daemon(false) && !fs_legacy_present() {
         return false;
     }
-
-    let Some(script_file) = PRIVILEGES_SCRIPTS_DIR.get_file("uninstall.scpt") else {
-        return false;
-    };
-    let Some(script_body) = script_file.contents_utf8().map(correct_app_name) else {
-        return false;
-    };
+    let names = fs_launchd_names();
+    let mut args = vec![
+        get_active_username(),
+        format!("{}|{}", names.daemon_label, names.daemon_plist),
+        format!("{}|{}", names.agent_label, names.agent_plist),
+    ];
+    args.extend(fs_legacy_entries());
+    let prompt_text = format!("{} doit retirer son service.", crate::get_app_name());
 
     let func = move || {
-        match std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(script_body)
-            .status()
-        {
-            Err(e) => {
-                log::error!("run osascript failed: {}", e);
+        if let Err(msg) = fs_run_privileged("uninstall.sh", &prompt_text, args) {
+            log::error!("[fs-mac-service] {}", msg);
+        }
+        let uninstalled = !Path::new(&names.agent_plist).exists();
+        log::info!(
+            "Agent file {} uninstalled: {}",
+            names.agent_plist,
+            uninstalled
+        );
+        if uninstalled {
+            fs_set_install_status("");
+            if !show_new_window {
+                let _ = crate::ipc::close_all_instances();
+                // leave ipc a little time
+                std::thread::sleep(std::time::Duration::from_millis(300));
             }
-            _ => {
-                let agent = format!("{}_server.plist", crate::get_full_name());
-                let agent_plist_file = format!("/Library/LaunchAgents/{}", agent);
-                let uninstalled = !std::path::Path::new(&agent_plist_file).exists();
-                log::info!(
-                    "Agent file {} uninstalled: {}",
-                    agent_plist_file,
-                    uninstalled
-                );
-                if uninstalled {
-                    if !show_new_window {
-                        let _ = crate::ipc::close_all_instances();
-                        // leave ipc a little time
-                        std::thread::sleep(std::time::Duration::from_millis(300));
-                    }
-                    crate::ipc::set_option("stop-service", "Y");
-                    std::process::Command::new("launchctl")
-                        .args(&["remove", &format!("{}_server", crate::get_full_name())])
-                        .status()
-                        .ok();
-                    if show_new_window {
-                        std::process::Command::new("open")
-                            .arg("-n")
-                            .arg(&format!("/Applications/{}.app", crate::get_app_name()))
-                            .spawn()
-                            .ok();
-                        // leave open a little time
-                        std::thread::sleep(std::time::Duration::from_millis(300));
-                    }
-                    quit_gui();
-                }
+            crate::ipc::set_option("stop-service", "Y");
+            std::process::Command::new("launchctl")
+                .args(&["remove", &names.agent_label])
+                .status()
+                .ok();
+            if show_new_window {
+                std::process::Command::new("open")
+                    .arg("-n")
+                    .arg(&format!("/Applications/{}.app", crate::get_app_name()))
+                    .spawn()
+                    .ok();
+                // leave open a little time
+                std::thread::sleep(std::time::Duration::from_millis(300));
             }
+            quit_gui();
         }
     };
     if sync {
@@ -912,9 +973,7 @@ pub fn update_me() -> ResultType<()> {
 
     let app_name = crate::get_app_name();
     if is_installed_daemon && !is_service_stopped {
-        let agent = format!("{}_server.plist", crate::get_full_name());
-        let agent_plist_file = format!("/Library/LaunchAgents/{}", agent);
-        update_daemon_agent(agent_plist_file, app_dir, true);
+        update_daemon_agent(fs_launchd_names().agent_plist, app_dir, true);
     } else {
         // `kill -9` may not work without "administrator privileges"
         let update_body = r#"
@@ -1060,8 +1119,9 @@ pub fn update_from_dmg_as_root(dmg_path: &str, expected_version: &str) -> Result
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp_dir, std::fs::Permissions::from_mode(0o700))?;
     }
-    let agent_plist = format!("/Library/LaunchAgents/com.carriez.{}_server.plist", app_name);
-    let daemon_plist = format!("/Library/LaunchDaemons/com.carriez.{}_service.plist", app_name);
+    let fs_names = fs_launchd_names();
+    let agent_plist = fs_names.agent_plist.clone();
+    let daemon_plist = fs_names.daemon_plist.clone();
 
     log::info!("[root-update] Starting silent root update from {}", dmg_path);
     // Check sessions before extracting to avoid unnecessary work
@@ -1192,8 +1252,8 @@ pub fn update_from_dmg_as_root(dmg_path: &str, expected_version: &str) -> Result
     // Write a shell script that runs detached after this function returns.
     // We cannot directly replace /Applications/RustDesk.app while it is running,
     // so we spawn a script that waits, kills processes, copies, and restarts.
-    let daemon_label = format!("com.carriez.{}_service", app_name);
-    let agent_label = format!("com.carriez.{}_server", app_name);
+    let daemon_label = fs_names.daemon_label.clone();
+    let agent_label = fs_names.agent_label.clone();
     let script_path = format!("{}/rustdesk_update.sh", tmp_dir);
     let script = format!(
         r#"#!/bin/sh

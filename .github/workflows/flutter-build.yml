@@ -453,6 +453,8 @@ jobs:
           fs_tests fs_rendezvous::
           # Zone de notification : bonne taille du casque tirée de res/tray-icon.ico.
           fs_tests fs_tray::
+          # Service macOS : noms launchd sans espace, modèles de plist, anciens noms à nettoyer, messages.
+          fs_tests fs_mac_service::
           echo "::notice title=Tests unitaires Rust Windows::durée $(( $(date +%s) - started )) s"
 
       - name: Paquet portable FS Support (compilation et tests)
@@ -1225,6 +1227,27 @@ jobs:
             cp "$PKG" "$ESSAI"
             if gh release upload fs-test "$ESSAI" "$RAPPORT" -R "$GITHUB_REPOSITORY" --clobber; then
               echo "::notice title=Installeur pkg (fs-test)::https://github.com/${GITHUB_REPOSITORY}/releases/download/fs-test/$ESSAI"
+            else
+              echo "::warning::envoi vers fs-test impossible"
+            fi
+          fi
+          exit $code
+
+      # FS Support : service macOS (LaunchDaemon + LaunchAgent) sur le runner, après l'installation du .pkg :
+      # plists écrits par le binaire (noms sans espace), anciens noms nettoyés, installation par l'AppleScript
+      # de l'app (osascript en root), launchctl print, 40 s sans relance en boucle, désinstallation propre.
+      - name: FS Support controle du service macOS (launchd sur le runner)
+        if: env.UPLOAD_ARTIFACT == 'true' || inputs.fs-dmg-artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RAPPORT="fs-service-controle-${{ matrix.job.arch }}.txt"
+          code=0
+          bash ./res/fs/macos/verifier-service.sh "$RAPPORT" || code=$?
+          if [[ "${GITHUB_REF_NAME}" == fs/mac-* ]]; then
+            if gh release upload fs-test "$RAPPORT" -R "$GITHUB_REPOSITORY" --clobber; then
+              echo "::notice title=Service macOS (fs-test)::https://github.com/${GITHUB_REPOSITORY}/releases/download/fs-test/$RAPPORT"
             else
               echo "::warning::envoi vers fs-test impossible"
             fi

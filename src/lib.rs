@@ -40,6 +40,8 @@ pub mod flutter_ffi;
 use common::*;
 mod auth_2fa;
 mod fs_support;
+// FS Support : le binaire « service » (LaunchDaemon macOS) prend le même nom d'application que l'interface.
+pub use fs_support::apply_defaults as fs_support_apply_defaults;
 // FS Support : jeton d'enrôlement (nom du fichier téléchargé, lien fs-support://enrol) envoyé dans le sysinfo.
 mod fs_enrolment;
 // FS Support : jeton du compte FS Connect et serveur de rendez-vous sans échange de clé (hbbs libre).
@@ -59,6 +61,9 @@ mod tray;
 // FS Support : icône de la zone de notification (Windows) et de la barre des menus (macOS).
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod fs_tray;
+// FS Support : noms launchd et installation du service macOS (sans espace), testés partout.
+#[allow(dead_code)]
+mod fs_mac_service;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod whiteboard;

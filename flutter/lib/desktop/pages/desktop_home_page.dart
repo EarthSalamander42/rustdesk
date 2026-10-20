@@ -15,6 +15,7 @@ import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
 import 'package:flutter_hbb/fs/fs_desktop_home.dart';
 import 'package:flutter_hbb/fs/fs_mac_permissions.dart';
+import 'package:flutter_hbb/fs/fs_mac_service_install.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -552,7 +553,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           bind.mainIsInstalled() &&
           !bind.mainIsInstalledDaemon(prompt: false)) {
         return buildInstallCard("", "install_daemon_tip", "Install", () async {
-          bind.mainIsInstalledDaemon(prompt: true);
+          // FS Support : suivi de l'installation et message d'erreur visible (fs_mac_service_install.dart).
+          await fsInstallMacService(() {
+            if (mounted) setState(() {});
+          });
         });
       }
       //// Disable microphone configuration for macOS. We will request the permission when needed.
