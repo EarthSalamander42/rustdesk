@@ -291,8 +291,11 @@ main() {
 	fi
 
 	restart_agent
-	if grep -qs "$DEST" /Library/LaunchDaemons/*.plist; then
-		note "Le service système de FS Support passera à la nouvelle version au prochain redémarrage du Mac."
+	if [ -f /Library/LaunchDaemons/fr.fs-solutions.support_service.plist ]; then
+		# Service système (noms sans espace depuis le 20/10/2026) : relance sur la nouvelle version.
+		if ! sudo -n /bin/launchctl kickstart -k system/fr.fs-solutions.support_service >/dev/null 2>&1; then
+			note "Le service système de FS Support passera à la nouvelle version au prochain redémarrage du Mac."
+		fi
 	fi
 
 	info "Ouverture de FS Support…"
