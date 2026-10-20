@@ -50,14 +50,15 @@ done
 # Composant : jamais « relogeable » (sinon Installer remplacerait une copie trouvée ailleurs sur le disque
 # au lieu d'écrire dans /Applications) ; pas de refus d'une version égale (builds de test au même numéro).
 /usr/bin/pkgbuild --analyze --root "$W/root" "$W/composant.plist"
-n="$(/usr/libexec/PlistBuddy -c 'Print' "$W/composant.plist" | grep -c 'RootRelativeBundlePath' || true)"
+# Entrées de premier niveau seulement (les sous-bundles sont dans ChildBundles).
 i=0
-while [ "$i" -lt "$n" ]; do
+while /usr/libexec/PlistBuddy -c "Print :$i:RootRelativeBundlePath" "$W/composant.plist" >/dev/null 2>&1; do
 	/usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" "$W/composant.plist"
 	/usr/libexec/PlistBuddy -c "Set :$i:BundleIsVersionChecked false" "$W/composant.plist" 2>/dev/null || true
 	/usr/libexec/PlistBuddy -c "Set :$i:BundleOverwriteAction upgrade" "$W/composant.plist" 2>/dev/null || true
 	i=$((i + 1))
 done
+[ "$i" -ge 1 ] || { echo "composant.plist sans bundle" >&2; exit 1; }
 
 /usr/bin/pkgbuild \
 	--root "$W/root" \
