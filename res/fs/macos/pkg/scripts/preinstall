@@ -1,0 +1,52 @@
+#!/bin/bash
+# FS Support — installeur .pkg macOS : AVANT la copie de « FS Support.app » dans /Applications.
+# Lancé par Installer en root. Ferme l'interface FS Support si elle tourne (sinon l'ancienne version reste
+# ouverte sur des fichiers remplacés) et note l'empreinte de l'ancienne copie pour postinstall.
+# Ne touche à rien d'autre : ni Gatekeeper, ni SIP, ni aucun réglage du Mac.
+# Ne fait jamais échouer l'installation (sortie 0 dans tous les cas).
+
+APP_NAME="FS Support"
+CIBLE="${3:-/}"
+CIBLE="${CIBLE%/}"
+DEST="${CIBLE}/Applications/${APP_NAME}.app"
+ETAT="/tmp/fs-support-pkg-ancien-cdhash"
+
+log() { echo "FS Support preinstall : $*"; }
+
+rm -f "$ETAT"
+if [ -d "$DEST" ]; then
+	/usr/bin/codesign -dvvv "$DEST" 2>&1 | awk -F= '/^CDHash=/ { print $2; exit }' >"$ETAT" 2>/dev/null || true
+fi
+
+# Processus de l'interface : le service (--server, --service) porte le même nom, on l'écarte.
+gui_pids() {
+	local pid args
+	for pid in $(/usr/bin/pgrep -x "$APP_NAME" 2>/dev/null || true); do
+		args="$(/bin/ps -o args= -p "$pid" 2>/dev/null || true)"
+		case "$args" in
+		*" --server"* | *" --service"*) continue ;;
+		esac
+		echo "$pid"
+	done
+}
+
+[ -n "$(gui_pids)" ] || exit 0
+log "fermeture de l'interface en cours"
+UTIL="$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
+UID_UTIL="$(/usr/bin/id -u "$UTIL" 2>/dev/null || true)"
+if [ -n "$UID_UTIL" ] && [ "$UTIL" != "root" ] && [ "$UTIL" != "loginwindow" ]; then
+	/bin/launchctl asuser "$UID_UTIL" /usr/bin/sudo -u "$UTIL" /usr/bin/osascript \
+		-e 'ignoring application responses' -e "tell application \"$APP_NAME\" to quit" -e 'end ignoring' >/dev/null 2>&1 || true
+fi
+i=0
+while [ -n "$(gui_pids)" ] && [ "$i" -lt 20 ]; do
+	sleep 0.5
+	i=$((i + 1))
+done
+if [ -n "$(gui_pids)" ]; then
+	log "arrêt forcé de l'interface"
+	for pid in $(gui_pids); do kill "$pid" 2>/dev/null || true; done
+	sleep 1
+	for pid in $(gui_pids); do kill -9 "$pid" 2>/dev/null || true; done
+fi
+exit 0

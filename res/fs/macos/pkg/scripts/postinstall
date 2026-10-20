@@ -1,0 +1,118 @@
+#!/bin/bash
+# FS Support — installeur .pkg macOS : APRÈS la copie de « FS Support.app » dans /Applications.
+# Lancé par Installer en root. Étapes :
+#   1. ferme une interface FS Support encore ouverte (cas rare : rouverte pendant la copie) ;
+#   2. retire la quarantaine de /Applications/FS Support.app UNIQUEMENT (xattr -dr com.apple.quarantine) ;
+#   3. vérifie la signature (codesign --verify) ; incohérente : nouvelle signature locale ad hoc, revérifiée ;
+#   4. rend l'app à l'utilisateur connecté (la mise à jour intégrée n'aura pas à demander le mot de passe) ;
+#   5. ad hoc + nouvelle empreinte : retire les anciennes autorisations macOS (devenues inutiles) pour
+#      qu'elles soient redemandées proprement, comme res/fs/macos-install.sh ;
+#   6. relance le service FS Support s'il tournait (launchd le redémarre sur la nouvelle version) ;
+#   7. ouvre FS Support dans la session de l'utilisateur connecté (launchctl asuser + open).
+# JAMAIS : spctl --master-disable, csrutil, ni aucun réglage global de Gatekeeper ou de SIP.
+# Seule la signature invalide fait échouer l'installation ; le reste est journalisé (/var/log/install.log).
+
+APP_NAME="FS Support"
+CIBLE="${3:-/}"
+CIBLE="${CIBLE%/}"
+DEST="${CIBLE}/Applications/${APP_NAME}.app"
+ETAT="/tmp/fs-support-pkg-ancien-cdhash"
+
+log() { echo "FS Support postinstall : $*"; }
+
+[ -d "$DEST" ] || { log "ERREUR : $DEST introuvable après la copie"; exit 1; }
+
+UTIL="$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
+UID_UTIL=""
+if [ -n "$UTIL" ] && [ "$UTIL" != "root" ] && [ "$UTIL" != "loginwindow" ] && [ "$UTIL" != "_mbsetupuser" ]; then
+	UID_UTIL="$(/usr/bin/id -u "$UTIL" 2>/dev/null || true)"
+fi
+en_utilisateur() {
+	[ -n "$UID_UTIL" ] || return 1
+	/bin/launchctl asuser "$UID_UTIL" /usr/bin/sudo -u "$UTIL" "$@"
+}
+
+gui_pids() {
+	local pid args
+	for pid in $(/usr/bin/pgrep -x "$APP_NAME" 2>/dev/null || true); do
+		args="$(/bin/ps -o args= -p "$pid" 2>/dev/null || true)"
+		case "$args" in
+		*" --server"* | *" --service"*) continue ;;
+		esac
+		echo "$pid"
+	done
+}
+
+# 1. Interface encore ouverte
+if [ -n "$(gui_pids)" ]; then
+	log "interface encore ouverte : fermeture"
+	en_utilisateur /usr/bin/osascript -e 'ignoring application responses' \
+		-e "tell application \"$APP_NAME\" to quit" -e 'end ignoring' >/dev/null 2>&1 || true
+	sleep 2
+	for pid in $(gui_pids); do kill "$pid" 2>/dev/null || true; done
+fi
+
+# 2. Quarantaine : sur l'app installée seulement
+/usr/bin/xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
+if /usr/bin/xattr -lr "$DEST" 2>/dev/null | grep -q 'com.apple.quarantine'; then
+	log "attention : quarantaine encore présente sur $DEST"
+else
+	log "quarantaine retirée de $DEST"
+fi
+
+# 3. Signature
+if /usr/bin/codesign --verify --deep --strict "$DEST" >/dev/null 2>&1; then
+	log "signature valide"
+else
+	log "signature incohérente : nouvelle signature locale (ad hoc)"
+	/usr/bin/codesign --force --deep --sign - "$DEST" >/dev/null 2>&1 || true
+	if ! /usr/bin/codesign --verify --deep --strict "$DEST" >/dev/null 2>&1; then
+		log "ERREUR : signature de $DEST invalide"
+		exit 1
+	fi
+	log "signature refaite"
+fi
+
+# 4. Propriétaire
+if [ -n "$UID_UTIL" ]; then
+	/usr/sbin/chown -R "$UTIL:staff" "$DEST" 2>/dev/null || true
+fi
+
+# 5. Autorisations macOS d'une ancienne version ad hoc
+ANCIEN="$(cat "$ETAT" 2>/dev/null || true)"
+rm -f "$ETAT"
+NOUVEAU="$(/usr/bin/codesign -dvvv "$DEST" 2>&1 | awk -F= '/^CDHash=/ { print $2; exit }')"
+if [ -n "$ANCIEN" ] && [ "$ANCIEN" != "$NOUVEAU" ]; then
+	case "$(/usr/bin/codesign -dvvv "$DEST" 2>&1)" in
+	*"Signature=adhoc"*)
+		ID="$(/usr/bin/defaults read "$DEST/Contents/Info" CFBundleIdentifier 2>/dev/null || true)"
+		if [ -n "$ID" ]; then
+			log "nouvelle empreinte ad hoc : autorisations redemandées à l'ouverture"
+			for service in Accessibility ScreenCapture ListenEvent; do
+				/usr/bin/tccutil reset "$service" "$ID" >/dev/null 2>&1 || true
+				en_utilisateur /usr/bin/tccutil reset "$service" "$ID" >/dev/null 2>&1 || true
+			done
+		fi
+		;;
+	esac
+fi
+
+# 6. Service (agent de lancement --server) : launchd le relance sur la nouvelle version
+EXE="$(/usr/bin/defaults read "$DEST/Contents/Info" CFBundleExecutable 2>/dev/null || echo "$APP_NAME")"
+SERVEUR="$DEST/Contents/MacOS/$EXE --server"
+if /usr/bin/pgrep -f "^$SERVEUR" >/dev/null 2>&1; then
+	log "redémarrage du service FS Support"
+	/usr/bin/pkill -f "^$SERVEUR" 2>/dev/null || true
+fi
+
+# 7. Ouverture dans la session de l'utilisateur
+if [ -n "$UID_UTIL" ]; then
+	if en_utilisateur /usr/bin/open "$DEST" >/dev/null 2>&1; then
+		log "FS Support ouvert pour $UTIL"
+	else
+		log "ouverture impossible : FS Support s'ouvrira depuis le dossier Applications"
+	fi
+else
+	log "aucun utilisateur connecté à l'écran : FS Support n'est pas ouvert"
+fi
+exit 0
