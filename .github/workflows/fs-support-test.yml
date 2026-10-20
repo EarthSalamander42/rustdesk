@@ -2,6 +2,7 @@
 # Les fichiers partent dans la pré-release « fs-test », que le site et la mise à jour automatique
 # ne lisent pas : aucun client n'est touché. Téléchargement :
 # https://github.com/EarthSalamander42/rustdesk/releases/tag/fs-test
+# macOS : le .dmg ET l’installeur .pkg (rustdesk-<version>-<arch>.pkg, contrôlé par une installation sur le runner).
 name: FS Support Test
 
 on:

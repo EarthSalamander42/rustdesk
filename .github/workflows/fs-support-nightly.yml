@@ -104,6 +104,9 @@ jobs:
           copy_first "fs-support-${VERSION}-windows-x86_64.msi" "rustdesk-${VERSION}-*x86_64.msi"
           copy_first "fs-support-${VERSION}-macos-x86_64.dmg" "rustdesk-${VERSION}-*x86_64*.dmg"
           copy_first "fs-support-${VERSION}-macos-aarch64.dmg" "rustdesk-${VERSION}-*aarch64*.dmg"
+          # Installeur .pkg gratuit (même app, postinstall : quarantaine de l’app retirée, relance) : res/fs/macos/pkg/.
+          copy_first "fs-support-${VERSION}-macos-x86_64.pkg" "rustdesk-${VERSION}-*x86_64*.pkg"
+          copy_first "fs-support-${VERSION}-macos-aarch64.pkg" "rustdesk-${VERSION}-*aarch64*.pkg"
           # Linux n'est plus distribué (06/10/2026) : ni .deb ni AppImage (l'ancienne AppImage était republiée sous le nouveau nom).
           copy_first "fs-support-${VERSION}-android-universal.apk" "rustdesk-${VERSION}-*universal*.apk"
           # Installation macOS en une ligne (curl … | bash, sans quarantaine) : nom fixe, sans version, pour que

@@ -1195,19 +1195,61 @@ jobs:
           fi
           create-dmg --icon "${{ env.FS_SUPPORT_APP_NAME }}.app" 200 190 --hide-extension "${{ env.FS_SUPPORT_APP_NAME }}.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg "./flutter/build/macos/Build/Products/Release/${{ env.FS_SUPPORT_APP_NAME }}.app"
 
+      # FS Support : installeur .pkg gratuit (pkgbuild + productbuild, sans certificat Apple) à côté du .dmg.
+      # Même app que le .dmg (signature conservée), installée dans /Applications ; postinstall : quarantaine de
+      # l'app seule retirée, signature vérifiée, relance pour l'utilisateur connecté. Voir res/fs/macos/pkg/.
+      - name: FS Support installeur pkg macOS
+        if: env.UPLOAD_ARTIFACT == 'true' || inputs.fs-dmg-artifact
+        shell: bash
+        run: |
+          bash ./res/fs/macos/pkg/build-pkg.sh \
+            "./flutter/build/macos/Build/Products/Release/${{ env.FS_SUPPORT_APP_NAME }}.app" \
+            "${{ env.VERSION }}" "${{ matrix.job.arch }}" \
+            "rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.pkg"
+
+      # Contrôle sur le runner : contenu (pkgutil --expand-full), puis installation réelle d'une copie en
+      # quarantaine (sudo installer) et vérification de /Applications/FS Support.app. Branches fs/mac-* :
+      # l'installeur et le rapport partent aussi dans la pré-release publique fs-test (essai sur un vrai Mac).
+      - name: FS Support controle du pkg macOS (installation sur le runner)
+        if: env.UPLOAD_ARTIFACT == 'true' || inputs.fs-dmg-artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PKG="rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.pkg"
+          RAPPORT="fs-pkg-controle-${{ matrix.job.arch }}.txt"
+          code=0
+          bash ./res/fs/macos/pkg/verifier-pkg.sh "$PKG" "${{ env.VERSION }}" "$RAPPORT" || code=$?
+          if [[ "${GITHUB_REF_NAME}" == fs/mac-* ]]; then
+            ESSAI="fs-support-${{ env.VERSION }}-macos-${{ matrix.job.arch }}.pkg"
+            cp "$PKG" "$ESSAI"
+            if gh release upload fs-test "$ESSAI" "$RAPPORT" -R "$GITHUB_REPOSITORY" --clobber; then
+              echo "::notice title=Installeur pkg (fs-test)::https://github.com/${GITHUB_REPOSITORY}/releases/download/fs-test/$ESSAI"
+            else
+              echo "::warning::envoi vers fs-test impossible"
+            fi
+          fi
+          exit $code
+
       - name: Upload unsigned macOS app
         if: env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustdesk-unsigned-macos-${{ matrix.job.arch }}
-          path: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg # can not upload the directory directly or tar.gz, which destroy the link structure, causing the codesign failed
+          # can not upload the directory directly or tar.gz, which destroy the link structure, causing the codesign failed
+          path: |
+            rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg
+            rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.pkg
 
       - name: FS Support DMG en artefact de run (sans release)
         if: ${{ inputs.fs-dmg-artifact }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fs-support-dmg-${{ matrix.job.arch }}
-          path: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg
+          path: |
+            rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg
+            rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.pkg
+            fs-pkg-controle-${{ matrix.job.arch }}.txt
           retention-days: 7
 
       - name: Codesign app and create signed dmg
@@ -1247,6 +1289,7 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           files: |
             rustdesk*-${{ matrix.job.arch }}.dmg
+            rustdesk*-${{ matrix.job.arch }}.pkg
 
   publish_unsigned:
     needs:
