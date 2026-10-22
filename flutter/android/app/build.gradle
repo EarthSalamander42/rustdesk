@@ -136,4 +136,8 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib") { version { strictly("1.9.10") } }
     implementation 'com.caverock:androidsvg-aar:1.4'
     implementation "rustls:rustls-platform-verifier:0.1.1"
+    // FS Support : injection tactile réelle via Shizuku quand il est installé et autorisé (sinon rien ne change).
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
+    implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:4.3'
 }
