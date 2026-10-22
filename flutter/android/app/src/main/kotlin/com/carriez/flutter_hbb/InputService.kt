@@ -254,7 +254,7 @@ class InputService : AccessibilityService() {
         }
 
         if (mask == BACK_UP) {
-            performGlobalAction(GLOBAL_ACTION_BACK)
+            fsGlobalAction(GLOBAL_ACTION_BACK, KeyEventAndroid.KEYCODE_BACK)
             return
         }
 
@@ -263,7 +263,7 @@ class InputService : AccessibilityService() {
             timer.purge()
             recentActionTask = object : TimerTask() {
                 override fun run() {
-                    performGlobalAction(GLOBAL_ACTION_RECENTS)
+                    fsGlobalAction(GLOBAL_ACTION_RECENTS, KeyEventAndroid.KEYCODE_APP_SWITCH)
                     recentActionTask = null
                 }
             }
@@ -274,7 +274,7 @@ class InputService : AccessibilityService() {
         if (mask == WHEEL_BUTTON_UP) {
             if (recentActionTask != null) {
                 recentActionTask!!.cancel()
-                performGlobalAction(GLOBAL_ACTION_HOME)
+                fsGlobalAction(GLOBAL_ACTION_HOME, KeyEventAndroid.KEYCODE_HOME)
             }
             return
         }
@@ -396,11 +396,34 @@ class InputService : AccessibilityService() {
 
     @RequiresApi(Build.VERSION_CODES.N)
     private fun longPress(x: Int, y: Int) {
+        // FS Support : avec Shizuku, un vrai doigt maintenu puis relâché
+        if (FsShizuku.down(x, y)) {
+            timer.schedule(object : TimerTask() {
+                override fun run() {
+                    FsShizuku.up(x, y)
+                }
+            }, longPressDuration)
+            return
+        }
         // FS Support : en secours, ACTION_LONG_CLICK sur le nœud sous le point
         performClick(x, y, longPressDuration) { fsFallbackClick(x, y, true) }
     }
 
+    // FS Support : touche système par Shizuku d'abord (les boîtiers Droidlogic ignorent
+    // performGlobalAction pour les récents), sinon l'action d'accessibilité habituelle.
+    private fun fsGlobalAction(action: Int, keyCode: Int) {
+        if (!FsShizuku.key(keyCode)) {
+            performGlobalAction(action)
+        }
+    }
+
     private fun startGesture(x: Int, y: Int) {
+        // FS Support : avec Shizuku, le doigt se pose vraiment ; move/up suivront en continu
+        if (FsShizuku.down(x, y)) {
+            lastX = x
+            lastY = y
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             touchPath.reset()
         } else {
@@ -462,6 +485,12 @@ class InputService : AccessibilityService() {
 
     @RequiresApi(Build.VERSION_CODES.N)
     private fun continueGesture(x: Int, y: Int) {
+        if (FsShizuku.isPointerDown()) {
+            FsShizuku.move(x, y)
+            lastX = x
+            lastY = y
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             doDispatchGesture(x, y, true)
             touchPath.reset()
@@ -498,6 +527,10 @@ class InputService : AccessibilityService() {
 
     @RequiresApi(Build.VERSION_CODES.N)
     private fun endGesture(x: Int, y: Int, fallback: (() -> Unit)? = null) {
+        if (FsShizuku.isPointerDown()) {
+            FsShizuku.up(x, y)
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             doDispatchGesture(x, y, false, fallback)
             touchPath.reset()
@@ -1554,6 +1587,8 @@ class InputService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        // FS Support : injection réelle par Shizuku si présent et autorisé (sinon sans effet)
+        FsShizuku.init()
         ctx = this
         notifyInputState()
         val info = AccessibilityServiceInfo()
@@ -1596,6 +1631,7 @@ class InputService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        FsShizuku.release()
         ctx = null
         // FS Support : arrêt du fil des actions de secours
         fsFallbackHandler = null

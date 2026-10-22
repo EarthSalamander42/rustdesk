@@ -3,6 +3,9 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.carriez.flutter_hbb">
 
+    <!-- FS Support : Shizuku (API 24+) ne sert qu'à partir d'Android 7, les appels sont gardés par SDK_INT. -->
+    <uses-sdk tools:overrideLibrary="rikka.shizuku.api,rikka.shizuku.provider,rikka.shizuku.shared,rikka.shizuku.aidl,org.lsposed.hiddenapibypass" />
+
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
@@ -130,6 +133,15 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/fs_file_paths" />
         </provider>
+
+        <!-- FS Support : Shizuku transmet son binder par ce fournisseur (injection tactile réelle, optionnelle). -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <!--
  Don't delete the meta-data below.
