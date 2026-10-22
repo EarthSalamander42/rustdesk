@@ -23,6 +23,7 @@ import '../widgets/remote_toolbar.dart';
 import '../widgets/kb_layout_type_chooser.dart';
 import '../widgets/tabbar_widget.dart';
 import 'macos_full_screen_focus_recovery.dart';
+import 'package:flutter_hbb/common/widgets/fs_click_ripple.dart';
 
 import 'package:flutter_hbb/native/custom_cursor.dart'
     if (dart.library.html) 'package:flutter_hbb/web/custom_cursor.dart';
@@ -897,7 +898,8 @@ class _RemotePageState extends State<RemotePage>
     PointerExitEventListener? onExit,
   ) {
     return RawTouchGestureDetectorRegion(
-      child: _buildRawPointerMouseRegion(child, onEnter, onExit),
+      child: _buildRawPointerMouseRegion(
+          FsClickRipple(child: child), onEnter, onExit),
       ffi: _ffi,
     );
   }
