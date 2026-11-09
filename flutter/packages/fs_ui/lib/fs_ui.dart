@@ -4,6 +4,7 @@
 /// leurs données et leurs rappels en paramètres ; le client les branche dans `flutter/lib/fs/`.
 library fs_ui;
 
+export 'src/fusion.dart';
 export 'src/models.dart';
 export 'src/strings.dart';
 export 'src/svg_path.dart';
