@@ -9,11 +9,13 @@
 // Hors connexion (ou serveur injoignable), rien ne change : sessions récentes et entreprises locales
 // (`fs_company_groups.dart`), comme avant.
 //
-// Reprise des données locales (`fsSaasSynchroniser`) : à la première connexion d'un compte sur ce poste, les
-// entreprises locales deviennent des étiquettes et les sessions récentes des appareils du carnet (avec leur
-// entreprise), sans doublon : le SaaS ignore un appareil déjà présent et complète seulement ses champs vides.
-// Ensuite, chaque nouvelle session récente rejoint le carnet (« Non classés »). Un appareil retiré du carnet à la main
-// n'y revient pas tout seul (le SaaS s'en souvient : ajout marqué `fs_auto`). Aucun mot de passe n'est envoyé.
+// Reprise des données locales (`fsSaasSynchroniser`) : à la première connexion d'un compte sur ce poste, RIEN ne part
+// tout seul (09/11/2026). Si ce poste a des appareils ou des entreprises, l'écran « Fusionner vos appareils »
+// (`fs_fusion_appareils.dart`) montre la comparaison faite par le SaaS et l'utilisateur valide, choisit de ne rien
+// envoyer, ou se déconnecte. Une fois la fusion validée, chaque nouvelle session récente rejoint le carnet
+// (« Non classés »), sauf les appareils laissés de côté pendant la fusion ; après « Ne rien envoyer », rien ne part
+// tout seul. Un appareil retiré du carnet à la main n'y revient pas tout seul (le SaaS s'en souvient : ajout marqué
+// `fs_auto`). Aucun mot de passe n'est envoyé.
 //
 // Indicateur de synchronisation (14/10/2026, `FsSyncBadge` / `FsSyncLocalBanner` de fs_ui) : l'état vient du
 // carnet réel — dernier chargement réussi, envoi en attente ou en échec — relevé ici ([fsSyncEtat]). Un moteur
@@ -23,7 +25,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:fs_ui/fs_ui.dart';
 import 'package:get/get.dart';
@@ -33,9 +34,7 @@ import '../common/widgets/fs_company_groups.dart';
 import '../models/ab_model.dart' show ForcePullAb;
 import '../models/peer_model.dart';
 import '../models/platform_model.dart';
-
-/// Préfixe des réglages de l'Atelier (`ATELIER_OPTION_PREFIX` de `src/fs_support.rs`).
-const String _kAtelierPrefix = 'fs-atelier:';
+import 'fs_fusion_appareils.dart';
 
 /// Vrai quand l'accueil s'appuie sur le carnet du SaaS : compte connecté, carnet personnel (non « legacy ») chargé,
 /// sans erreur de chargement. Lit des valeurs observables : à appeler dans un `Obx` pour suivre les changements.
@@ -237,51 +236,32 @@ Future<void> fsSaasSynchroniser() async {
       }
     }
     final compte = gFFI.userModel.userName.value;
-    final drapeau = '${_kAtelierPrefix}fs-saas-import:$compte';
-    final premiere = bind.mainGetCommonSync(key: drapeau) != 'Y';
-    final local = fsLocalCompanySnapshot();
-    var entreprisesAjoutees = 0;
-    if (premiere) {
-      final aAjouter = <String>[];
-      for (final c in local.companies) {
-        if (fsSaasEtiquette(c) == null && !aAjouter.any((x) => _cle(x) == _cle(c))) aAjouter.add(c);
+    final recents = await _sessionsRecentes();
+    var decision = fsFusionDecision(compte);
+    if (decision.isEmpty) {
+      // Première connexion de ce compte sur ce poste : comparaison et validation par l'utilisateur, jamais d'envoi direct.
+      final decide = await fsFusionProposer(recents,
+          recharger: () => ab.pullAb(force: ForcePullAb.listAndCurrent, quiet: true));
+      if (!decide) {
+        fsSyncEnAttente.value = 0;
+        fsSyncErreur.value = '';
+        return;
       }
-      if (aAjouter.isNotEmpty && await ab.addTags(aAjouter)) entreprisesAjoutees = aAjouter.length;
+      decision = fsFusionDecision(compte);
     }
     final dansCarnet = ab.currentAbPeers.map((p) => p.id).toSet();
+    final ecartes = fsFusionEcartes(compte);
     final envoi = <Map<String, dynamic>>[];
-    final recents = await _sessionsRecentes();
-    for (final p in recents) {
-      if (dansCarnet.contains(p.id) || _dejaProposes.contains(p.id)) continue;
-      _dejaProposes.add(p.id);
-      final ent = premiere ? local.map[p.id] : null;
-      envoi.add(_pourCarnet(p.id, p: p, entreprise: ent == null ? null : fsSaasEtiquette(ent)));
-    }
-    if (premiere) {
-      // Appareils rangés localement mais absents des sessions récentes.
-      for (final e in local.map.entries) {
-        if (dansCarnet.contains(e.key) || _dejaProposes.contains(e.key)) continue;
-        _dejaProposes.add(e.key);
-        envoi.add(_pourCarnet(e.key, entreprise: fsSaasEtiquette(e.value)));
-      }
-      // Appareils déjà dans le carnet mais sans entreprise : reprise du rangement local.
-      for (final p in ab.currentAbPeers.toList()) {
-        final ent = local.map[p.id];
-        final tag = ent == null ? null : fsSaasEtiquette(ent);
-        if (p.tags.isEmpty && tag != null) await ab.changeTagForPeers([p.id], [tag]);
+    if (decision == 'Y') {
+      for (final p in recents) {
+        if (dansCarnet.contains(p.id) || _dejaProposes.contains(p.id) || ecartes.contains(p.id)) continue;
+        _dejaProposes.add(p.id);
+        envoi.add(_pourCarnet(p.id, p: p));
       }
     }
     String? erreur;
     fsSyncEnAttente.value = envoi.length;
     if (envoi.isNotEmpty) erreur = await ab.addPeersTo(envoi, ab.currentName.value);
-    if (premiere && erreur == null) {
-      await bind.mainSetCommon(key: drapeau, value: 'Y');
-      if (envoi.isNotEmpty || entreprisesAjoutees > 0) {
-        BotToast.showText(
-            contentColor: MyTheme.accent,
-            text: '${envoi.length} appareil${envoi.length > 1 ? 's' : ''} et $entreprisesAjoutees entreprise${entreprisesAjoutees > 1 ? 's' : ''} rangés dans FS Solutions');
-      }
-    }
     if (erreur != null) {
       debugPrint('fsSaas : envoi au carnet incomplet : $erreur');
       // Ces appareils repartiront au prochain essai.
@@ -310,6 +290,7 @@ Future<void> fsSaasSynchroniser() async {
 /// Après une déconnexion : la prochaine connexion d'un compte refait la comparaison des sessions récentes.
 void fsSaasOublierSession() {
   _dejaProposes.clear();
+  fsFusionOublier();
   fsSyncErreur.value = '';
   fsSyncEnAttente.value = 0;
   fsSyncReussiLe.value = null;
