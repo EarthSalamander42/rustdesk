@@ -30,7 +30,10 @@ jobs:
             echo "build=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          LAST="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow fs-support-nightly.yml --branch master --status success --limit 1 --json headSha --jq '.[0].headSha // ""' || true)"
+          # Commit de la version publiée, noté dans la release fs-nightly à chaque publication.
+          # (Ne pas se fier au statut du run : une plateforme annulée le met en « cancelled »
+          # alors que les autres ont bien été publiées.)
+          LAST="$(gh release view fs-nightly --repo "$GITHUB_REPOSITORY" --json body --jq '.body' 2>/dev/null | sed -n 's/^fs-support-commit: *\([0-9a-f]\{40\}\).*/\1/p' | head -n 1 || true)"
           if [[ -n "$LAST" && "$LAST" == "$GITHUB_SHA" ]]; then
             echo "Aucun changement depuis la dernière nightly (${LAST::12}) : pas de build."
             echo "build=false" >> "$GITHUB_OUTPUT"
@@ -169,6 +172,8 @@ jobs:
 
           if find "$OUT_DIR" -maxdepth 1 -type f | grep -q .; then
             gh release upload "$RELEASE_TAG" "$OUT_DIR"/* --repo "$GITHUB_REPOSITORY" --clobber
+            # Lu par check-fs-support-changes : pas de nouvelle version tant que ce commit ne change pas.
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes "fs-support-commit: $GITHUB_SHA (version $VERSION)"
           else
             echo "No normalized asset generated." >&2
             exit 1

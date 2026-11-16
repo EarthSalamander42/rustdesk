@@ -963,9 +963,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # FS Support : Intel (macos-15-intel) et/ou Apple Silicon (macos-14) selon macos-x64 / macos-arm64.
+        # FS Support : Intel (macos-15-intel) et/ou Apple Silicon (macos-15) selon macos-x64 / macos-arm64.
         # Apple Silicon : --screencapturekit (le rendu texture reste désactivé, cf. rustdesk#6296).
-        job: ${{ fromJSON(format('[{0}{1}{2}]', inputs.macos-x64 && '{"target":"x86_64-apple-darwin","os":"macos-15-intel","extra-build-args":"","arch":"x86_64","vcpkg-triplet":"x64-osx"}' || '', (inputs.macos-x64 && inputs.macos-arm64) && ',' || '', inputs.macos-arm64 && '{"target":"aarch64-apple-darwin","os":"macos-14","extra-build-args":"--screencapturekit","arch":"aarch64","vcpkg-triplet":"arm64-osx"}' || '')) }}
+        job: ${{ fromJSON(format('[{0}{1}{2}]', inputs.macos-x64 && '{"target":"x86_64-apple-darwin","os":"macos-15-intel","extra-build-args":"","arch":"x86_64","vcpkg-triplet":"x64-osx"}' || '', (inputs.macos-x64 && inputs.macos-arm64) && ',' || '', inputs.macos-arm64 && '{"target":"aarch64-apple-darwin","os":"macos-15","extra-build-args":"--screencapturekit","arch":"aarch64","vcpkg-triplet":"arm64-osx"}' || '')) }}
     steps:
       - name: Export GitHub Actions cache environment variables
         uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
