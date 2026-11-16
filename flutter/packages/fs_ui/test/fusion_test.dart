@@ -97,8 +97,7 @@ void main() {
   });
 
   test('clé locale par compte : acceptée par les réglages de l\'Atelier', () {
-    final valide = RegExp(r'^fs-[A-Za-z0-9-]{1,61}
-);
+    final valide = RegExp(r'^fs-[A-Za-z0-9-]{1,61}$');
     final k = fsCleCompte('fs-saas-sauvegarde', 'contact@novapilotagency.com');
     expect(valide.hasMatch(k), isTrue, reason: k);
     expect(k.length, lessThanOrEqualTo(64));
