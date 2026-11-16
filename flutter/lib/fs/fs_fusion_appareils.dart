@@ -25,10 +25,11 @@ import '../models/peer_model.dart';
 import '../models/platform_model.dart';
 import '../utils/http_service.dart' as http;
 
-/// Réglages de l'Atelier (`ATELIER_OPTION_PREFIX` de `src/fs_support.rs`), par compte.
-String fsFusionCleDecision(String compte) => 'fs-atelier:fs-saas-import:$compte';
-String fsFusionCleEcartes(String compte) => 'fs-atelier:fs-saas-ecartes:$compte';
-String _cleSauvegarde(String compte) => 'fs-atelier:fs-saas-sauvegarde:$compte';
+/// Réglages de l'Atelier (`ATELIER_OPTION_PREFIX` de `src/fs_support.rs`), par compte. Le compte passe par
+/// `fsCleCompte` : son nom (adresse e-mail) n'est pas un nom de clé accepté, la valeur n'était jamais gardée.
+String fsFusionCleDecision(String compte) => 'fs-atelier:${fsCleCompte('fs-saas-import', compte)}';
+String fsFusionCleEcartes(String compte) => 'fs-atelier:${fsCleCompte('fs-saas-ecartes', compte)}';
+String _cleSauvegarde(String compte) => 'fs-atelier:${fsCleCompte('fs-saas-sauvegarde', compte)}';
 
 /// Décision prise sur ce poste pour ce compte : 'Y' fusionné, 'N' rien envoyé, '' pas encore décidé.
 String fsFusionDecision(String compte) => bind.mainGetCommonSync(key: fsFusionCleDecision(compte));
@@ -126,6 +127,7 @@ void _ecran(String compte, FsFusionPlan planDepart, Map<String, dynamic> demande
   var choix = FsFusionChoix(plan);
   var envoi = false;
   String? message;
+  String? detail;
   Map<String, dynamic>? bilan;
   var annulee = false;
 
@@ -142,29 +144,20 @@ void _ecran(String compte, FsFusionPlan planDepart, Map<String, dynamic> demande
       setState(() {
         envoi = true;
         message = null;
+        detail = null;
       });
+      // Copie locale de ce que ce poste avait, avant toute écriture dans le compte.
+      final local = fsLocalCompanySnapshot();
+      final copie = <String, dynamic>{
+        'le': DateTime.now().toIso8601String(),
+        'entreprises': local.companies,
+        'rangement': local.map,
+        'demande': demande,
+      };
+      Map<String, dynamic>? r;
       try {
-        // Copie locale de ce que ce poste avait, avant toute écriture dans le compte.
-        final local = fsLocalCompanySnapshot();
-        await bind.mainSetCommon(
-            key: _cleSauvegarde(compte),
-            value: jsonEncode({
-              'le': DateTime.now().toIso8601String(),
-              'entreprises': local.companies,
-              'rangement': local.map,
-              'demande': demande,
-            }));
-        final r = await _appel('appliquer', choix.corps(plan, demande));
-        final ecartes = {...fsFusionEcartes(compte), ...choix.laissesDeCote(plan)};
-        await bind.mainSetCommon(key: fsFusionCleEcartes(compte), value: jsonEncode(ecartes.toList()));
-        await bind.mainSetCommon(key: fsFusionCleDecision(compte), value: 'Y');
-        if (r['sauvegarde'] != null) {
-          final s = jsonDecode(bind.mainGetCommonSync(key: _cleSauvegarde(compte))) as Map<String, dynamic>;
-          s['sauvegardeCompte'] = r['sauvegarde'];
-          await bind.mainSetCommon(key: _cleSauvegarde(compte), value: jsonEncode(s));
-        }
-        await recharger();
-        setState(() => bilan = r);
+        await bind.mainSetCommon(key: _cleSauvegarde(compte), value: jsonEncode(copie));
+        r = await _appel('appliquer', choix.corps(plan, demande));
       } on _RefusFusion catch (e) {
         if (e.code == 'carnet_modifie') {
           // Un autre poste a modifié le compte : nouvelle comparaison, l'utilisateur revalide.
@@ -179,10 +172,48 @@ void _ecran(String compte, FsFusionPlan planDepart, Map<String, dynamic> demande
           setState(() => message = e.toString());
         }
       } catch (e) {
-        setState(() => message = 'Fusion impossible : vérifiez la connexion Internet. Rien n\'a été modifié.');
-      } finally {
-        setState(() => envoi = false);
+        // L'appel n'a pas abouti : le compte n'a pas changé.
+        setState(() {
+          message = 'Fusion impossible : vérifiez la connexion Internet. Rien n\'a été modifié.';
+          detail = fsFusionCause(e);
+        });
       }
+      if (r == null) {
+        setState(() => envoi = false);
+        return;
+      }
+      final fait = r;
+      // Le compte est fusionné. La suite ne concerne que ce PC : un échec ne doit jamais faire croire le contraire.
+      final rates = <String>[];
+      Future<void> etape(String quoi, Future<void> Function() f) async {
+        try {
+          await f();
+        } catch (e) {
+          debugPrint('fusion : étape locale « $quoi » en échec : $e');
+          rates.add(quoi);
+          detail ??= fsFusionCause(e);
+        }
+      }
+
+      await etape('vos choix', () async {
+        final ecartes = {...fsFusionEcartes(compte), ...choix.laissesDeCote(plan)};
+        await bind.mainSetCommon(key: fsFusionCleEcartes(compte), value: jsonEncode(ecartes.toList()));
+        await bind.mainSetCommon(key: fsFusionCleDecision(compte), value: 'Y');
+        // Le moteur refuse sans bruit un nom de réglage invalide : on relit pour en être sûr.
+        if (fsFusionDecision(compte) != 'Y') throw StateError('réglage local non enregistré');
+      });
+      if (fait['sauvegarde'] != null) {
+        await etape('la copie locale', () async {
+          copie['sauvegardeCompte'] = fait['sauvegarde'];
+          await bind.mainSetCommon(key: _cleSauvegarde(compte), value: jsonEncode(copie));
+        });
+      }
+      await etape('la liste des appareils', recharger);
+      setState(() {
+        bilan = fait;
+        envoi = false;
+        if (rates.isNotEmpty) message = fsFusionAvertissementLocal(rates);
+      });
     }
 
     Future<void> annulerFusion() async {
@@ -325,7 +356,8 @@ void _ecran(String compte, FsFusionPlan planDepart, Map<String, dynamic> demande
           constraints: const BoxConstraints(maxHeight: 460),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Flexible(child: contenu),
-            if (message != null) Text(message!, style: const TextStyle(color: Colors.red)).marginOnly(top: 8),
+            if (message != null) Text(message!, style: TextStyle(color: bilan != null ? theme.hintColor : Colors.red)).marginOnly(top: 8),
+            if (detail != null) aide(detail!).marginOnly(top: 2),
             if (envoi) const LinearProgressIndicator().marginOnly(top: 8),
           ]),
         ),
