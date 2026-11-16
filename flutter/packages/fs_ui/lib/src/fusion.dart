@@ -5,6 +5,8 @@
 // (`/api/ab/fusion/appliquer`) avec l'empreinte du carnet : si un autre poste l'a modifié entre-temps, le SaaS refuse et
 // le poste refait la comparaison. Logique pure, sans moteur RustDesk : testée par test/fusion_test.dart.
 
+import 'dart:convert';
+
 /// Un appareil tel que le poste le connaît, envoyé au plan (jamais de mot de passe).
 class FsFusionAppareil {
   const FsFusionAppareil({
@@ -200,3 +202,34 @@ String fsFusionBilan(Map<String, dynamic> r) {
   ];
   return morceaux.isEmpty ? 'Rien à changer : vos appareils étaient déjà à jour.' : '${morceaux.join(', ')}.';
 }
+
+/// Nom de réglage local propre à un compte. Les réglages de l'Atelier (`is_atelier_key` de `src/fs_support.rs`)
+/// n'acceptent que « fs- », des lettres, des chiffres et des tirets, 64 caractères au plus : le nom du compte (adresse
+/// e-mail) et le « : » qui le précédait y étaient refusés sans bruit, la valeur n'était jamais gardée. Le compte est
+/// réduit à une empreinte FNV-1a sur deux fois 32 bits (pas de BigInt, mêmes valeurs sur toutes les plateformes).
+String fsCleCompte(String prefixe, String compte) {
+  final octets = utf8.encode(compte.trim().toLowerCase());
+  String fnv(int depart) {
+    var h = depart;
+    for (final o in octets) {
+      h ^= o;
+      // h × 0x01000193 modulo 2^32, sans dépasser 2^53.
+      h = (h * 0x193 + ((h & 0xFF) << 24)) & 0xFFFFFFFF;
+    }
+    return h.toRadixString(16).padLeft(8, '0');
+  }
+
+  return '$prefixe-${fnv(0x811c9dc5)}${fnv(0x050c5d1f)}';
+}
+
+/// Cause technique, en petit sous le message : le type d'erreur et sa première ligne.
+String fsFusionCause(Object e) {
+  final texte = e.toString().split('\n').first.trim();
+  final type = e.runtimeType.toString();
+  final cause = texte.isEmpty || texte == type ? type : (texte.startsWith(type) ? texte : '$type : $texte');
+  return 'Détail : ${cause.length > 160 ? '${cause.substring(0, 157)}…' : cause}';
+}
+
+/// Fusion faite dans le compte, mais une étape propre à ce PC a échoué.
+String fsFusionAvertissementLocal(List<String> etapes) =>
+    'Fusion faite dans votre compte, mais ce PC n\'a pas pu noter ${etapes.join(', ')}.';

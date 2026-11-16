@@ -95,4 +95,24 @@ void main() {
         '2 appareils ajoutés, 1 mis à jour depuis ce PC, 1 entreprise créée.');
     expect(fsFusionBilan({}), 'Rien à changer : vos appareils étaient déjà à jour.');
   });
+
+  test('clé locale par compte : acceptée par les réglages de l\'Atelier', () {
+    final valide = RegExp(r'^fs-[A-Za-z0-9-]{1,61}
+);
+    final k = fsCleCompte('fs-saas-sauvegarde', 'contact@novapilotagency.com');
+    expect(valide.hasMatch(k), isTrue, reason: k);
+    expect(k.length, lessThanOrEqualTo(64));
+    // Stable, insensible à la casse et aux espaces, différente d'un compte à l'autre et d'un usage à l'autre.
+    expect(k, fsCleCompte('fs-saas-sauvegarde', '  Contact@NovaPilotAgency.com '));
+    expect(k, isNot(fsCleCompte('fs-saas-sauvegarde', 'autre@exemple.fr')));
+    expect(k, isNot(fsCleCompte('fs-saas-import', 'contact@novapilotagency.com')));
+    // FNV-1a 32 bits de référence : "a" → e40c292c.
+    expect(fsCleCompte('fs-x', 'a').substring(5, 13), 'e40c292c');
+  });
+
+  test('cause et avertissement local', () {
+    expect(fsFusionCause(const FormatException('Unexpected end of input')), startsWith('Détail : FormatException'));
+    expect(fsFusionAvertissementLocal(['vos choix', 'la copie locale']),
+        'Fusion faite dans votre compte, mais ce PC n\'a pas pu noter vos choix, la copie locale.');
+  });
 }
